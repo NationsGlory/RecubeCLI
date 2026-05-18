@@ -227,10 +227,11 @@ async function uploadOne(
   const res = await fetch(slot.upload_url, {
     method,
     headers,
+    // Node's undici fetch accepts a Readable as body when paired with
+    // duplex: 'half' (RequestInit type does not yet expose duplex — cast).
     body: stream as unknown as BodyInit,
-    // @ts-expect-error Node-only fetch flag required for streaming bodies.
     duplex: 'half',
-  });
+  } as RequestInit & { duplex: 'half' });
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
     throw new Error(

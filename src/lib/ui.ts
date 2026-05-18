@@ -44,7 +44,11 @@ export const ui = {
     options: { value: T; label: string; hint?: string }[];
     initialValue?: T;
   }): Promise<T> {
-    const result = await p.select(opts);
+    // @clack/prompts Option<T> requires the options array to be inferred as
+    // Option<Value>[] ; passing a plain object literal loses that branding,
+    // so cast through unknown.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (p.select as any)(opts);
     if (p.isCancel(result)) ui.cancel('Annulé.');
     return result as T;
   },
