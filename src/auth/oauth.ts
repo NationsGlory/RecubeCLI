@@ -154,7 +154,11 @@ export function startCallbackServer(opts: {
       reject(err);
     });
 
-    server.listen(0, '127.0.0.1');
+    // Fixed port (RFC 8252 + Laravel Passport exact-match on redirect_uri).
+    // 51737 chosen for mnemonic + low collision risk. Override via
+    // RECUBE_CLI_CALLBACK_PORT if a dev runs into a conflict.
+    const port = Number.parseInt(process.env.RECUBE_CLI_CALLBACK_PORT ?? '51737', 10);
+    server.listen(port, '127.0.0.1');
   });
 
   // The Promise constructor runs synchronously, so `server` is assigned before

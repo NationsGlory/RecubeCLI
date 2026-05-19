@@ -12,10 +12,11 @@ import path from 'node:path';
 import os from 'node:os';
 import type { RecubeConfig } from '../types.js';
 
-// TODO(recube): hardcode placeholder until the OAuth client is registered server-side
-// (see /admin/oauth-apps on recube.gg). Override via RECUBE_CLI_CLIENT_ID env var or
-// ~/.recube/config.json.clientId.
-const DEFAULT_CLIENT_ID = 'recube-cli';
+// Public OAuth client registered server-side (recube.gg/admin/oauth-apps).
+// Type: public + PKCE. Redirect: http://127.0.0.1:51737/callback. Grants:
+// authorization_code + refresh_token. Override via RECUBE_CLI_CLIENT_ID env
+// var or ~/.recube/config.json.clientId for self-hosted Recube deployments.
+const DEFAULT_CLIENT_ID = 'bc2bd10d-9142-4009-b307-0d02c438d295';
 const DEFAULT_API_BASE = 'https://recube.gg/api/v1';
 const DEFAULT_OAUTH_BASE = 'https://recube.gg';
 
