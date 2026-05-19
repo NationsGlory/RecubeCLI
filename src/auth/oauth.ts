@@ -73,7 +73,7 @@ export interface CallbackServerHandle {
 }
 
 /**
- * Starts a one-shot HTTP server on 127.0.0.1:<random port>. The server resolves
+ * Starts a one-shot HTTP server on localhost:<random port>. The server resolves
  * the returned promise on the first GET /callback containing a `code` parameter,
  * then auto-closes. `state` is enforced by the caller (we just expose it).
  */
@@ -101,7 +101,7 @@ export function startCallbackServer(opts: {
         res.writeHead(400).end('Bad request');
         return;
       }
-      const url = new URL(req.url, 'http://127.0.0.1');
+      const url = new URL(req.url, 'http://localhost');
       if (url.pathname !== '/callback') {
         res.writeHead(404).end('Not Found');
         return;
@@ -158,7 +158,7 @@ export function startCallbackServer(opts: {
     // 51737 chosen for mnemonic + low collision risk. Override via
     // RECUBE_CLI_CALLBACK_PORT if a dev runs into a conflict.
     const port = Number.parseInt(process.env.RECUBE_CLI_CALLBACK_PORT ?? '51737', 10);
-    server.listen(port, '127.0.0.1');
+    server.listen(port, 'localhost');
   });
 
   // The Promise constructor runs synchronously, so `server` is assigned before
@@ -172,7 +172,7 @@ export function startCallbackServer(opts: {
       return addr.port;
     },
     get redirectUri(): string {
-      return `http://127.0.0.1:${handle.port}/callback`;
+      return `http://localhost:${handle.port}/callback`;
     },
     result,
     close: () => {
