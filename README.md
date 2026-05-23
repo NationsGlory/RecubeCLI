@@ -103,11 +103,63 @@ Main command. Interactive prompts when args are missing :
 | `--exclude <p...>` | Extra exclude patterns | `[]` |
 | `--dry-run` | Show recap, skip API calls | `false` |
 | `-y, --yes` | Skip the final confirmation | `false` |
+| `--runtime-config <file>` | JSON file with JVM launch metadata (override auto-detect) | none |
+| `--no-recube-core` | Disable auto-detect of sibling RecubeCore jar | false |
 
 The pipeline scans the directory, hashes each file (sha256), POSTs
 `/launcher/{tenant}/{channel}/builds/initiate` in chunks of 50, uploads missing
 blobs to R2 via presigned PUTs (8-way parallel), then POSTs
 `/launcher/{tenant}/{channel}/builds/commit`.
+
+#### `runtime_config` (JVM launch metadata)
+
+A build's `runtime_config` tells the launcher how to start the JVM (main class,
+client jar, heap, GC, opens). Two ways to attach one :
+
+1. **Explicit flag** : `--runtime-config ./my-runtime.json`
+2. **Convention** : place `.recube/runtime.json` at the root of your build dir.
+   The CLI reads it automatically. Flag wins over file.
+
+If neither is provided, the backend inherits from the latest version on the
+same channel (`BuildPipeline` v364f97c).
+
+Example `.recube/runtime.json` :
+
+```json
+{
+  "main_class": "Start",
+  "client_jar": "NGClient.jar",
+  "java_version": 21,
+  "java_vendor": "temurin",
+  "java_min_version": "21.0.0",
+  "jvm_args": [
+    "-Xmx2G",
+    "-Xms512M",
+    "-XX:+UseG1GC",
+    "--add-opens=java.base/java.lang=ALL-UNNAMED"
+  ]
+}
+```
+
+#### Sibling `RecubeCore` auto-detect
+
+If the CLI finds `RecubeCore/build/libs/recube-core-*.jar` in a sibling
+directory (up to 3 levels above the build dir), it prompts to include it as
+`mods/recube-core.jar`. Disable via `--no-recube-core`.
+
+### `recube doctor [--dir <path>] [--json]`
+
+Diagnose your environment :
+
+- Node version (>= 20 required)
+- CLI version vs. latest published on npm
+- Config (apiBase, oauthBase, clientId)
+- Network reachability to `recube.gg`
+- Auth status + token expiry
+- Accessible tenants
+- Build dir (with `--dir`) — sanity check for `mods/`, `config/`, `.recube/runtime.json`
+
+`--json` outputs structured results (CI-friendly) ; exit code 1 if any check fails.
 
 ### `recube channels list <tenant>`
 
@@ -120,7 +172,14 @@ Interactive prompt to create a new channel (`name`, `label`, `description`,
 
 ### `recube versions list <tenant> [-c <channel>]`
 
-List published versions.
+List published versions. Tries (in order) :
+
+1. `/v1/admin/games/{slug}/versions` — full history, **admin scope required**
+2. `/v1/games/{slug}/branches/{channel}/versions` — public per-branch history (if exposed)
+3. fallback : 1 row per channel synthesized from `latest_version`
+
+If admin scope was denied at step 1, the output warns explicitly instead of
+returning silently empty.
 
 ## Configuration
 

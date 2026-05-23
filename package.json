@@ -1,10 +1,13 @@
 {
   "name": "@recube/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Recube developer CLI — publish game builds with OAuth auth",
   "type": "module",
   "bin": {
     "recube": "./dist/cli.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc",
