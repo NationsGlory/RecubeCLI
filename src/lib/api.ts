@@ -95,28 +95,65 @@ export class RecubeApiClient {
     }
   }
 
-  async listVersions(slug: string, channel?: string): Promise<Version[]> {
-    // Admin endpoint requires `admin` scope ; non-admin users use branches/{branch}/latest.
-    // Try admin first, fallback to branches latest.
+  /**
+   * Strategy (most-specific → most-generic) :
+   *   1. Admin endpoint `/admin/games/{slug}/versions` (requires admin scope).
+   *   2. Public per-branch history `/games/{slug}/branches/{branch}/versions`
+   *      (if the backend exposes it ; some tenants do, some don't).
+   *   3. Fallback : `listChannelsForTenant` and synthesize a single
+   *      `(latest)` row per channel with `latest_version` if exposed.
+   *
+   * `adminDenied` is set when step 1 returned 401/403 so callers can hint the
+   * user that listing full version history requires admin permissions.
+   */
+  async listVersions(
+    slug: string,
+    channel?: string
+  ): Promise<{ versions: Version[]; adminDenied: boolean }> {
+    let adminDenied = false;
     try {
       const url = `/admin/games/${encodeURIComponent(slug)}/versions${channel ? `?channel=${encodeURIComponent(channel)}` : ''}`;
       const data = await this.get<{ data?: Version[] } | Version[]>(url);
-      if (Array.isArray(data)) return data;
-      return data.data ?? [];
+      const list = Array.isArray(data) ? data : data.data ?? [];
+      return { versions: list, adminDenied: false };
     } catch (err) {
       if (!(err instanceof ApiError)) throw err;
-      if (err.status !== 403 && err.status !== 401 && err.status !== 404) throw err;
+      if (err.status === 401 || err.status === 403) adminDenied = true;
+      else if (err.status !== 404) throw err;
     }
-    // Fallback : best-effort, list branches and resolve latest.
-    if (!channel) {
-      const branches = await this.listChannelsForTenant(slug);
-      return branches.map((b) => ({
-        id: String(b.id ?? b.name),
-        version: '(latest)',
-        channel: b.name,
-      })) as Version[];
+
+    if (channel) {
+      try {
+        const url = `/games/${encodeURIComponent(slug)}/branches/${encodeURIComponent(channel)}/versions`;
+        const data = await this.get<{ data?: Version[] } | Version[]>(url);
+        const list = Array.isArray(data) ? data : data.data ?? [];
+        if (list.length > 0) return { versions: list, adminDenied };
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err;
+        if (err.status !== 404 && err.status !== 401 && err.status !== 403) throw err;
+      }
     }
-    return [];
+
+    const branches = await this.listChannelsForTenant(slug);
+    const filtered = channel ? branches.filter((b) => b.name === channel) : branches;
+    const synth: Version[] = filtered
+      .map((b) => {
+        const latest = (b as unknown as { latest_version?: string | { version?: string } })
+          .latest_version;
+        const version =
+          typeof latest === 'string'
+            ? latest
+            : typeof latest === 'object' && latest && 'version' in latest
+              ? String(latest.version ?? '(latest)')
+              : '(latest)';
+        return {
+          id: String(b.id ?? b.name),
+          version,
+          channel: b.name,
+        } as Version;
+      })
+      .filter((v) => v.version);
+    return { versions: synth, adminDenied };
   }
 
   // ── Generic HTTP helpers ──────────────────────────────────────────

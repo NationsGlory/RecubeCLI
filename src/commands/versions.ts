@@ -21,9 +21,17 @@ export async function versionsListCommand(
     throw err;
   }
 
-  const versions = await session.api.listVersions(tenant, opts.channel);
+  const { versions, adminDenied } = await session.api.listVersions(tenant, opts.channel);
   if (versions.length === 0) {
-    ui.log.info(`Aucune version pour ${tenant}${opts.channel ? ` (channel=${opts.channel})` : ''}.`);
+    if (adminDenied) {
+      ui.log.warn(
+        `Liste complète des versions = scope admin requis (toi = pas admin).\nFallback public n'a rien retourné. Utilise ${chalk.cyan('recube channels list ' + tenant)} pour voir la dernière version par channel.`
+      );
+    } else {
+      ui.log.info(
+        `Aucune version pour ${tenant}${opts.channel ? ` (channel=${opts.channel})` : ''}.`
+      );
+    }
     return;
   }
 
@@ -35,5 +43,11 @@ export async function versionsListCommand(
     const created = String(v.created_at ?? '').padEnd(20);
     return `${ver} ${ch} ${ref} ${created}`;
   });
-  ui.note([chalk.dim(header), ...rows].join('\n'), `versions (${tenant})`);
+  const note = adminDenied
+    ? `${chalk.yellow('admin scope denied')} — fallback affiche dernière version par channel uniquement.`
+    : '';
+  ui.note(
+    [chalk.dim(header), ...rows, note].filter(Boolean).join('\n'),
+    `versions (${tenant})`
+  );
 }
