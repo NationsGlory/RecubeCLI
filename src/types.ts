@@ -51,6 +51,11 @@ export interface PublishOptions {
   apiBase: string;
   token: string;
   dryRun?: boolean;
+  /**
+   * JVM launch metadata (main_class, jvm_args, java_version, …). When omitted,
+   * the backend inherits from the latest version on same channel.
+   */
+  runtimeConfig?: Record<string, unknown>;
   onProgress?: (event: PublishProgressEvent) => void;
 }
 

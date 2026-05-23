@@ -16,6 +16,8 @@ import {
   DEFAULT_GAME_BUNDLE_EXCLUDES,
   publishBuild,
 } from '../lib/publish-pipeline.js';
+import { resolveRuntimeConfig, RuntimeConfigError } from '../lib/runtime-config.js';
+import { findSiblingRecubeCoreJar } from '../lib/recube-core.js';
 
 export interface PublishCommandOptions {
   tenant?: string;
@@ -32,6 +34,10 @@ export interface PublishCommandOptions {
   exclude?: string[];
   /** Skip the interactive confirmation step. */
   yes?: boolean;
+  /** Explicit runtime_config JSON file path (overrides .recube/runtime.json). */
+  runtimeConfig?: string;
+  /** Skip auto-detect of sibling RecubeCore jar. */
+  noRecubeCore?: boolean;
 }
 
 const VERSION_REGEX = /^[a-z0-9.+_-]+$/i;
@@ -136,6 +142,36 @@ export async function publishCommand(opts: PublishCommandOptions = {}): Promise<
     ? [...DEFAULT_GAME_BUNDLE_EXCLUDES, ...userExcludes]
     : userExcludes;
 
+  // ── runtime_config ─────────────────────────────────────────────────
+  // Flag wins over auto-detect. If neither, backend inherits from latest version.
+  let runtimeConfig: Record<string, unknown> | undefined;
+  let runtimeConfigSource: string | null = null;
+  try {
+    const resolved = await resolveRuntimeConfig(absDir, opts.runtimeConfig);
+    if (resolved) {
+      runtimeConfig = resolved.config as unknown as Record<string, unknown>;
+      runtimeConfigSource = resolved.source;
+    }
+  } catch (err) {
+    if (err instanceof RuntimeConfigError) ui.cancel(err.message);
+    throw err;
+  }
+
+  // ── Auto-detect sibling RecubeCore jar ─────────────────────────────
+  const extraIncludes: { path: string; as?: string }[] = [];
+  if (!opts.noRecubeCore) {
+    const sibling = await findSiblingRecubeCoreJar(absDir).catch(() => null);
+    if (sibling) {
+      const accept = opts.yes
+        ? true
+        : await ui.confirm({
+            message: `Trouvé ${chalk.cyan(path.basename(sibling.path))} dans un repo RecubeCore voisin. L'inclure comme ${chalk.bold('mods/recube-core.jar')} ?`,
+            initialValue: true,
+          });
+      if (accept) extraIncludes.push({ path: sibling.path, as: 'mods/recube-core.jar' });
+    }
+  }
+
   // ── Note ───────────────────────────────────────────────────────────
   const note = opts.note ?? (await ui.text({
     message: 'note (changelog/description du build)',
@@ -144,12 +180,20 @@ export async function publishCommand(opts: PublishCommandOptions = {}): Promise<
   }));
 
   // ── Recap + confirm ────────────────────────────────────────────────
+  const runtimeRecap = runtimeConfigSource
+    ? `${chalk.green('yes')} (${runtimeConfigSource})`
+    : `${chalk.dim('no')} (backend inherits from latest version)`;
+  const includesRecap = extraIncludes.length > 0
+    ? extraIncludes.map((i) => `${path.basename(i.path)} → ${i.as}`).join(', ')
+    : chalk.dim('none');
   const recap = [
     `${chalk.dim('tenant   ')} ${chalk.bold(tenant)}`,
     `${chalk.dim('channel  ')} ${chalk.bold(channel)}`,
     `${chalk.dim('version  ')} ${chalk.bold(version)}`,
     `${chalk.dim('dir      ')} ${absDir}`,
     `${chalk.dim('excludes ')} ${excludes.length} patterns`,
+    `${chalk.dim('includes ')} ${includesRecap}`,
+    `${chalk.dim('runtime  ')} ${runtimeRecap}`,
     `${chalk.dim('note     ')} ${note}`,
     opts.dryRun ? `${chalk.dim('mode     ')} ${chalk.yellow('DRY-RUN')}` : '',
   ].filter(Boolean).join('\n');
@@ -165,13 +209,16 @@ export async function publishCommand(opts: PublishCommandOptions = {}): Promise<
   spin.start('Scan du bundle...');
 
   let lastTotal = 0;
+  const t0 = Date.now();
+  let uploadedBytes = 0;
+  let manifestBytes = 0;
   try {
     const result = await publishBuild({
       tenant,
       channel,
       version: version!,
       dir: absDir,
-      includes: [],
+      includes: extraIncludes,
       excludes,
       note,
       reference: opts.reference,
@@ -180,6 +227,7 @@ export async function publishCommand(opts: PublishCommandOptions = {}): Promise<
       apiBase: session.apiBase,
       token: session.tokens.access_token,
       dryRun: opts.dryRun ?? false,
+      runtimeConfig,
       onProgress: (e) => {
         switch (e.type) {
           case 'scan':
@@ -192,15 +240,25 @@ export async function publishCommand(opts: PublishCommandOptions = {}): Promise<
           case 'initiate':
             spin.message(`Initiate batch ${e.batch}/${e.totalBatches} (${e.chunk} files)`);
             break;
-          case 'upload':
-            spin.message(`Upload ${e.index}/${e.total} ${truncate(e.path, 60)}`);
+          case 'upload': {
+            const elapsed = (Date.now() - t0) / 1000;
+            const kbs = elapsed > 0 ? Math.round(uploadedBytes / 1024 / elapsed) : 0;
+            const eta = e.total > 0 && e.index > 0
+              ? Math.round(((e.total - e.index) * elapsed) / e.index)
+              : 0;
+            spin.message(
+              `Upload ${e.index}/${e.total} ${kbs} KB/s eta ${eta}s ${truncate(e.path, 50)}`
+            );
             break;
+          }
           case 'commit':
             spin.message('Commit du manifest...');
             break;
         }
       },
     });
+    void manifestBytes;
+    void uploadedBytes;
     spin.stop('Publié.');
 
     if (opts.dryRun) {
@@ -219,11 +277,55 @@ export async function publishCommand(opts: PublishCommandOptions = {}): Promise<
     );
   } catch (err) {
     spin.stop('Échec.');
-    ui.cancel((err as Error).message);
+    ui.cancel(formatPublishError(err as Error));
   }
 }
 
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return '…' + s.slice(-(max - 1));
+}
+
+/**
+ * Map common backend errors to actionable hints. Pattern-matches on the
+ * stringified error from publish-pipeline (`POST {url} -> {status} {text}: {body}`).
+ */
+export function formatPublishError(err: Error): string {
+  const msg = err.message;
+  const statusMatch = msg.match(/-> (\d{3}) /);
+  const status = statusMatch ? Number(statusMatch[1]) : null;
+
+  if (status === 401) {
+    return `${msg}\n\nHint : token expiré ou révoqué. Relance ${chalk.cyan('recube login')}.`;
+  }
+  if (status === 403) {
+    return `${msg}\n\nHint : permission manquante. Demande à un admin recube.gg le scope ${chalk.cyan('launcher.{tenant}.publish')} pour ton compte.`;
+  }
+  if (status === 422) {
+    const bodyMatch = msg.match(/:\s*(\{.*\})\s*$/s);
+    if (bodyMatch) {
+      try {
+        const body = JSON.parse(bodyMatch[1]) as {
+          message?: string;
+          errors?: Record<string, string[]>;
+        };
+        const fields = body.errors
+          ? Object.entries(body.errors)
+              .map(([f, errs]) => `  - ${chalk.bold(f)}: ${errs.join(', ')}`)
+              .join('\n')
+          : '';
+        return `${chalk.red('Validation 422')} : ${body.message ?? 'invalid payload'}\n${fields}`;
+      } catch {
+        // fallthrough
+      }
+    }
+    return `${msg}\n\nHint : payload rejeté par le backend (champ manquant ou invalide).`;
+  }
+  if (status === 413) {
+    return `${msg}\n\nHint : fichier trop gros pour l'upload. Vérifie les limites R2 ou split le bundle.`;
+  }
+  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|fetch failed/i.test(msg)) {
+    return `${msg}\n\nHint : recube.gg inaccessible. Check ta connexion (VPN ? firewall ?) et ${chalk.cyan('recube doctor')}.`;
+  }
+  return msg;
 }

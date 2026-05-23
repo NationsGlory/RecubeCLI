@@ -16,13 +16,14 @@ import {
   channelsListCommand,
 } from './commands/channels.js';
 import { versionsListCommand } from './commands/versions.js';
+import { doctorCommand } from './commands/doctor.js';
 
 const program = new Command();
 
 program
   .name('recube')
   .description('Recube developer CLI — publish game builds with OAuth auth')
-  .version('0.1.0', '-v, --version', 'print version');
+  .version('0.2.0', '-v, --version', 'print version');
 
 program
   .command('login')
@@ -62,6 +63,8 @@ program
   .option('--exclude <pattern...>', 'exclure pattern (répétable)')
   .option('--dry-run', "afficher le récap, ne pas appeler l'API")
   .option('-y, --yes', 'skip la confirmation interactive finale')
+  .option('--runtime-config <file>', 'JSON file with main_class/jvm_args/java_version (override .recube/runtime.json)')
+  .option('--no-recube-core', "désactive l'auto-détection du jar RecubeCore voisin")
   .action(async (opts: {
     tenant?: string;
     channel?: string;
@@ -75,6 +78,8 @@ program
     exclude?: string[];
     dryRun?: boolean;
     yes?: boolean;
+    runtimeConfig?: string;
+    recubeCore?: boolean;
   }) => {
     await publishCommand({
       tenant: opts.tenant,
@@ -89,6 +94,9 @@ program
       exclude: opts.exclude,
       dryRun: opts.dryRun,
       yes: opts.yes,
+      runtimeConfig: opts.runtimeConfig,
+      // commander --no-recube-core sets recubeCore=false
+      noRecubeCore: opts.recubeCore === false,
     });
   });
 
@@ -120,6 +128,15 @@ versions
   .option('-c, --channel <name>', 'filtrer par channel')
   .action(async (tenant: string, opts: { channel?: string }) => {
     await versionsListCommand(tenant, { channel: opts.channel });
+  });
+
+program
+  .command('doctor')
+  .description("Diagnostiquer l'environnement (Node, CLI, auth, network, tenants)")
+  .option('-d, --dir <path>', 'aussi valider un build dir')
+  .option('--json', 'sortir les résultats en JSON (utile pour CI)')
+  .action(async (opts: { dir?: string; json?: boolean }) => {
+    await doctorCommand({ dir: opts.dir, json: opts.json });
   });
 
 program

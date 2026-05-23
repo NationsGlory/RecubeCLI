@@ -372,19 +372,21 @@ export async function publishBuild(opts: PublishOptions): Promise<CommitResult> 
   }
 
   opts.onProgress?.({ type: 'commit', url: commitUrl });
+  const commitBody: Record<string, unknown> = {
+    version: opts.version,
+    reference: opts.reference ?? `${opts.tenant}-${opts.version}-b${Date.now()}`,
+    note: opts.note,
+    files: manifest.map((f) => ({
+      path: f.path,
+      sha256: f.sha256,
+      size: f.size,
+      exec: false,
+    })),
+  };
+  if (opts.runtimeConfig) commitBody.runtime_config = opts.runtimeConfig;
   const commitRes = await postJsonRetry<{ data?: CommitResult } & CommitResult>(
     commitUrl,
-    {
-      version: opts.version,
-      reference: opts.reference ?? `${opts.tenant}-${opts.version}-b${Date.now()}`,
-      note: opts.note,
-      files: manifest.map((f) => ({
-        path: f.path,
-        sha256: f.sha256,
-        size: f.size,
-        exec: false,
-      })),
-    },
+    commitBody,
     opts.token
   );
   // unused helper to keep skipped count for callers (currently informative)
