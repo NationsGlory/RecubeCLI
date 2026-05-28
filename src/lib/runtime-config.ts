@@ -24,6 +24,7 @@ export interface RuntimeConfig {
   java_vendor?: string;
   java_min_version?: string;
   jvm_args?: string[];
+  game_args?: string[];
 }
 
 const STRING_KEYS = ['main_class', 'client_jar', 'java_vendor', 'java_min_version'] as const;
@@ -68,6 +69,18 @@ export function validateRuntimeConfig(raw: unknown, source: string): RuntimeConf
       }
     }
     out.jvm_args = obj.jvm_args as string[];
+  }
+
+  if (obj.game_args !== undefined && obj.game_args !== null) {
+    if (!Array.isArray(obj.game_args)) {
+      throw new RuntimeConfigError(`${source}: game_args must be an array of strings`);
+    }
+    for (const arg of obj.game_args) {
+      if (typeof arg !== 'string') {
+        throw new RuntimeConfigError(`${source}: game_args[*] must be a string, got ${typeof arg}`);
+      }
+    }
+    out.game_args = obj.game_args as string[];
   }
 
   return out;
