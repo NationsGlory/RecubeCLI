@@ -32,7 +32,12 @@ import type {
 export const DEFAULT_GAME_BUNDLE_EXCLUDES: string[] = [
   'logs/', 'crash-reports/', 'debug/',
   'cef_cache_MissingName/', 'ngcore_cache/',
-  'java/', 'natives/', 'assets/',
+  // Note : `natives/` et `assets/` ne sont PAS exclus — Forge 1.6.4 stable
+  // ship des CEF natives (chrome_elf.dll, libcef.dll, jcef.dll, paks,
+  // locales) ET les assets badges/sounds/textures dans le bundle. Sans
+  // ces files, NGBrowser crash UnsatisfiedLinkError chrome_elf au boot.
+  // `java/` reste exclu car la JVM est provisionnée par le launcher.
+  'java/',
   'saves/', 'versions/', 'stats/',
   'resourcepacks/', 'shaderpacks/',
   '*.log', '*.lck', '*.tmp', 'gc.log*',
