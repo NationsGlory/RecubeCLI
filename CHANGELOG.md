@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.2.1 — 2026-06-11
+
+Hotfix release driven by the 1.0.5 NationsGlory anti-cheat republish operation —
+the sibling RecubeCore auto-detect was attaching the jar at the wrong path,
+silently triggering `missing_recube_core` refusals on the backend.
+
+### Bug fixes
+
+- **Auto-detect path mismatch (critical)** : the sibling RecubeCore jar was
+  attached as `mods/recube-core.jar`, but the backend `BuildPipeline` expects
+  the agent jar at the **root** of the bundle (`recube-core.jar`, exact equality
+  match — cf. `RecubeGG BuildPipeline.php:619`). All auto-detect publishes on
+  channels that enforce the recube-core check were being silently refused with
+  `missing_recube_core`. Now attached at root.
+- **Dry-run récap shows real includes** : the recap block was built *before*
+  the auto-detect prompt resolved, so `includes` always rendered as `none`
+  even after the user accepted. Moved recap construction after include
+  resolution.
+
+### Features
+
+- **`publish -i / --include <spec...>`** : repeatable flag to manually attach
+  a file to the bundle without copying it into the dir first. Spec format :
+  `<source>:<target>` (colon-separated) or just `<source>` (target = basename).
+  Example : `-i ../RecubeCore/build/libs/recube-core-0.4.0-SNAPSHOT.jar:recube-core.jar`.
+  Windows drive letters (`C:\…`) are detected and not parsed as a separator.
+
+### UX
+
+- **`missing_recube_core` error rendering** : when the backend returns
+  `{ok:false, error:'missing_recube_core', message:'…'}`, the CLI now surfaces
+  the channel name and prints the exact `-i` syntax + sibling-repo fallback
+  hint, instead of dumping the raw response body.
+- **`doctor --dir`** : now reports the root `recube-core.jar` separately from
+  the legacy `mods/recube-core.jar` location ; the latter is flagged with a
+  warning since it does NOT satisfy the backend enforcement.
+
 ## 0.2.0 — 2026-05-23
 
 ### Bug fixes

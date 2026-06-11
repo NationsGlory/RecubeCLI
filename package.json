@@ -1,6 +1,6 @@
 {
   "name": "@recube/cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Recube developer CLI — publish game builds with OAuth auth",
   "type": "module",
   "bin": {

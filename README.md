@@ -105,6 +105,7 @@ Main command. Interactive prompts when args are missing :
 | `-y, --yes` | Skip the final confirmation | `false` |
 | `--runtime-config <file>` | JSON file with JVM launch metadata (override auto-detect) | none |
 | `--no-recube-core` | Disable auto-detect of sibling RecubeCore jar | false |
+| `-i, --include <spec...>` | Attach arbitrary files to the bundle (repeatable). Format `<source>:<target>` or `<source>` (target = basename). | `[]` |
 
 The pipeline scans the directory, hashes each file (sha256), POSTs
 `/launcher/{tenant}/{channel}/builds/initiate` in chunks of 50, uploads missing
@@ -145,7 +146,25 @@ Example `.recube/runtime.json` :
 
 If the CLI finds `RecubeCore/build/libs/recube-core-*.jar` in a sibling
 directory (up to 3 levels above the build dir), it prompts to include it as
-`mods/recube-core.jar`. Disable via `--no-recube-core`.
+the root `recube-core.jar` of the bundle (the backend `BuildPipeline` requires
+the anti-cheat agent at the root path — `mods/recube-core.jar` does NOT
+satisfy the check). Disable via `--no-recube-core`.
+
+#### Manual `--include`
+
+When the sibling auto-detect does not fit (jar lives in a custom build dir,
+multi-repo monorepo layout, CI cache, …), attach files manually :
+
+```bash
+recube publish \
+  -i /path/to/recube-core-0.4.0-SNAPSHOT.jar:recube-core.jar \
+  -i ./extras/optifine.jar:mods/optifine.jar \
+  -t nationsglory -c stable -V 1.0.5 -d ./build -y
+```
+
+Each `-i` spec is `<source>:<target>` (colon-separated) or just `<source>`
+(target = basename, attached at the root). Sources are resolved relative to
+cwd; non-existent sources error out before any upload.
 
 ### `recube doctor [--dir <path>] [--json]`
 

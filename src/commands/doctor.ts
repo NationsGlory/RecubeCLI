@@ -20,7 +20,7 @@ import { loadCredentials, tokensAreExpired } from '../auth/store.js';
 import { RecubeApiClient, ApiError } from '../lib/api.js';
 import { ui, chalk } from '../lib/ui.js';
 
-const CLI_VERSION = '0.2.0';
+const CLI_VERSION = '0.2.1';
 const NPM_PACKAGE = '@recube/cli';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
@@ -252,7 +252,14 @@ async function checkBuildDir(dir: string): Promise<CheckResult> {
   if (existsSync(path.join(abs, 'mods'))) findings.push('mods/');
   if (existsSync(path.join(abs, 'config'))) findings.push('config/');
   if (existsSync(path.join(abs, '.recube', 'runtime.json'))) findings.push('.recube/runtime.json');
-  if (existsSync(path.join(abs, 'mods', 'recube-core.jar'))) findings.push('mods/recube-core.jar');
+  // Anti-cheat agent — the backend BuildPipeline expects this jar at the
+  // root of the bundle (see RecubeGG BuildPipeline.php:619). The legacy
+  // `mods/recube-core.jar` path is kept here purely as a "did you forget
+  // to move it?" hint — it does NOT satisfy the backend check.
+  if (existsSync(path.join(abs, 'recube-core.jar'))) findings.push('recube-core.jar');
+  if (existsSync(path.join(abs, 'mods', 'recube-core.jar'))) {
+    findings.push('mods/recube-core.jar (warning: must be at root, not under mods/)');
+  }
   const status: CheckStatus = findings.length > 0 ? 'ok' : 'warn';
   return {
     name: 'Build dir',

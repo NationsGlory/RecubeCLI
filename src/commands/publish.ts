@@ -6,6 +6,7 @@
  * spinner.
  */
 
+import { existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
@@ -38,6 +39,46 @@ export interface PublishCommandOptions {
   runtimeConfig?: string;
   /** Skip auto-detect of sibling RecubeCore jar. */
   noRecubeCore?: boolean;
+  /** Extra files to attach to the bundle. Spec: `<source>:<target>` or `<source>`. */
+  include?: string[];
+}
+
+/**
+ * Parse a single `--include` spec.
+ *
+ * Format : `<source>:<target-path>` or just `<source>` (target = basename).
+ * The source path is resolved relative to cwd; the target is kept as-is
+ * (POSIX virtual path inside the bundle).
+ *
+ * Throws if the source file does not exist.
+ *
+ * Windows quirk : a raw drive letter prefix (`C:\…`) contains a colon but is
+ * NOT the spec separator. We split on the **last** colon so the canonical
+ * `C:\path\to\agent.jar:recube-core.jar` parses as
+ * `source=C:\path\to\agent.jar`, `target=recube-core.jar`. If the only colon
+ * in the string is a drive letter (`C:\path\agent.jar` alone), we keep the
+ * whole spec as source.
+ */
+export function parseIncludeSpec(spec: string): { path: string; as: string } {
+  let source: string;
+  let target: string | undefined;
+  const lastColon = spec.lastIndexOf(':');
+  // Drive letter colon = position 1, preceded by a single ASCII letter.
+  const lastIsDriveLetter = lastColon === 1 && /^[a-zA-Z]$/.test(spec[0]!);
+  if (lastColon > 0 && !lastIsDriveLetter) {
+    source = spec.slice(0, lastColon);
+    target = spec.slice(lastColon + 1);
+  } else {
+    source = spec;
+  }
+  const resolvedSource = path.resolve(source);
+  if (!existsSync(resolvedSource)) {
+    throw new Error(`--include source not found: ${resolvedSource}`);
+  }
+  return {
+    path: resolvedSource,
+    as: target && target.length > 0 ? target : path.basename(resolvedSource),
+  };
 }
 
 const VERSION_REGEX = /^[a-z0-9.+_-]+$/i;
@@ -158,6 +199,11 @@ export async function publishCommand(opts: PublishCommandOptions = {}): Promise<
   }
 
   // ── Auto-detect sibling RecubeCore jar ─────────────────────────────
+  // The backend BuildPipeline expects `recube-core.jar` at the *root* of the
+  // bundle, not under `mods/` (cf. RecubeGG BuildPipeline.php:619 /
+  // extractRecubeCoreEntry — exact equality match on the manifest path). The
+  // launcher consumes this entry as the anti-cheat agent jar; placing it
+  // under `mods/` would be silently refused with `missing_recube_core`.
   const extraIncludes: { path: string; as?: string }[] = [];
   if (!opts.noRecubeCore) {
     const sibling = await findSiblingRecubeCoreJar(absDir).catch(() => null);
@@ -165,11 +211,19 @@ export async function publishCommand(opts: PublishCommandOptions = {}): Promise<
       const accept = opts.yes
         ? true
         : await ui.confirm({
-            message: `Trouvé ${chalk.cyan(path.basename(sibling.path))} dans un repo RecubeCore voisin. L'inclure comme ${chalk.bold('mods/recube-core.jar')} ?`,
+            message: `Trouvé ${chalk.cyan(path.basename(sibling.path))} dans un repo RecubeCore voisin. L'inclure comme ${chalk.bold('recube-core.jar')} (racine du bundle) ?`,
             initialValue: true,
           });
-      if (accept) extraIncludes.push({ path: sibling.path, as: 'mods/recube-core.jar' });
+      if (accept) extraIncludes.push({ path: sibling.path, as: 'recube-core.jar' });
     }
+  }
+
+  // ── Manual --include extras ────────────────────────────────────────
+  // Each spec is `<source>:<target>` or `<source>` (target = basename).
+  // Parsed *after* auto-detect so a manual entry can override the sibling
+  // jar via the standard last-write-wins logic in buildLocalManifest.
+  for (const spec of opts.include ?? []) {
+    extraIncludes.push(parseIncludeSpec(spec));
   }
 
   // ── Note ───────────────────────────────────────────────────────────
@@ -180,11 +234,16 @@ export async function publishCommand(opts: PublishCommandOptions = {}): Promise<
   }));
 
   // ── Recap + confirm ────────────────────────────────────────────────
+  // Note : built AFTER auto-detect + --include resolution so the includes
+  // line reflects the actual list that will be uploaded (vs. always showing
+  // "none" because the recap was emitted before the auto-detect prompt fired).
   const runtimeRecap = runtimeConfigSource
     ? `${chalk.green('yes')} (${runtimeConfigSource})`
     : `${chalk.dim('no')} (backend inherits from latest version)`;
   const includesRecap = extraIncludes.length > 0
-    ? extraIncludes.map((i) => `${path.basename(i.path)} → ${i.as}`).join(', ')
+    ? extraIncludes
+        .map((i) => `${path.basename(i.path)} → ${i.as ?? path.basename(i.path)}`)
+        .join(', ')
     : chalk.dim('none');
   const recap = [
     `${chalk.dim('tenant   ')} ${chalk.bold(tenant)}`,
@@ -306,9 +365,29 @@ export function formatPublishError(err: Error): string {
     if (bodyMatch) {
       try {
         const body = JSON.parse(bodyMatch[1]) as {
+          ok?: boolean;
+          error?: string;
           message?: string;
           errors?: Record<string, string[]>;
         };
+        // Targeted handling for the recube-core anti-cheat enforcement
+        // (BuildPipeline.php commit() emits `{ok:false, error:'missing_recube_core', message:'…'}`).
+        // Surface the remediation hint upfront — `mods/` does NOT satisfy the
+        // check, only root `recube-core.jar`.
+        if (body.error === 'missing_recube_core') {
+          const channelHint = msg.match(/\/launcher\/[^/]+\/([^/]+)\/builds/);
+          const chanLabel = channelHint?.[1] ?? 'this channel';
+          return [
+            `${chalk.red('Publish refused')} : recube-core.jar is mandatory for channel "${chanLabel}".`,
+            body.message ? `  ${chalk.dim(body.message)}` : '',
+            '',
+            `  Hint : add the agent via ${chalk.cyan('-i <path>/recube-core-*.jar:recube-core.jar')}`,
+            `         OR keep a sibling RecubeCore repo at ${chalk.cyan('../../RecubeCore')} for auto-detect.`,
+            `         Note : the jar MUST land at the root of the bundle (NOT under mods/).`,
+          ]
+            .filter(Boolean)
+            .join('\n');
+        }
         const fields = body.errors
           ? Object.entries(body.errors)
               .map(([f, errs]) => `  - ${chalk.bold(f)}: ${errs.join(', ')}`)

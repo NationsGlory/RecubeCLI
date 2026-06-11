@@ -23,7 +23,7 @@ const program = new Command();
 program
   .name('recube')
   .description('Recube developer CLI — publish game builds with OAuth auth')
-  .version('0.2.0', '-v, --version', 'print version');
+  .version('0.2.1', '-v, --version', 'print version');
 
 program
   .command('login')
@@ -65,6 +65,10 @@ program
   .option('-y, --yes', 'skip la confirmation interactive finale')
   .option('--runtime-config <file>', 'JSON file with main_class/jvm_args/java_version (override .recube/runtime.json)')
   .option('--no-recube-core', "désactive l'auto-détection du jar RecubeCore voisin")
+  .option(
+    '-i, --include <spec...>',
+    'attacher un fichier au bundle ; format <source>:<target> ou <source> (target = basename). Répétable. Ex: -i ./recube-core-0.4.0.jar:recube-core.jar'
+  )
   .action(async (opts: {
     tenant?: string;
     channel?: string;
@@ -80,6 +84,7 @@ program
     yes?: boolean;
     runtimeConfig?: string;
     recubeCore?: boolean;
+    include?: string[];
   }) => {
     await publishCommand({
       tenant: opts.tenant,
@@ -97,6 +102,7 @@ program
       runtimeConfig: opts.runtimeConfig,
       // commander --no-recube-core sets recubeCore=false
       noRecubeCore: opts.recubeCore === false,
+      include: opts.include,
     });
   });
 
