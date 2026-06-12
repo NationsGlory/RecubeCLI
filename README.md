@@ -5,7 +5,7 @@ Paladium, …) via the Recube launcher API, with OAuth authentication instead of
 hand-passed bearer tokens.
 
 ```bash
-npm install -g @recube/cli
+npm install -g @nationsglory/cli
 recube login
 recube publish
 ```
@@ -31,9 +31,25 @@ CLI handles refresh automatically, and a `recube logout` revokes everything.
 
 Requires **Node.js 20+**.
 
-```bash
-npm install -g @recube/cli
-```
+This package is published to **GitHub Packages** (private, scoped to the
+`NationsGlory` organization), not the public npm registry. You need a one-time
+registry + auth setup before installing.
+
+1. Create a GitHub **Personal Access Token (classic)** with the `read:packages`
+   scope: https://github.com/settings/tokens
+2. Point the `@nationsglory` scope at GitHub Packages and authenticate, in your
+   **user-level** `~/.npmrc` (never commit the token):
+
+   ```
+   @nationsglory:registry=https://npm.pkg.github.com
+   //npm.pkg.github.com/:_authToken=YOUR_GITHUB_PAT
+   ```
+
+3. Install globally:
+
+   ```bash
+   npm install -g @nationsglory/cli
+   ```
 
 Verify :
 

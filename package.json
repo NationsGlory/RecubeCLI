@@ -1,5 +1,5 @@
 {
-  "name": "@recube/cli",
+  "name": "@nationsglory/cli",
   "version": "0.2.1",
   "description": "Recube developer CLI — publish game builds with OAuth auth",
   "type": "module",
@@ -7,7 +7,7 @@
     "recube": "./dist/cli.js"
   },
   "publishConfig": {
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   },
   "scripts": {
     "build": "tsc",

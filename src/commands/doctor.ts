@@ -21,7 +21,7 @@ import { RecubeApiClient, ApiError } from '../lib/api.js';
 import { ui, chalk } from '../lib/ui.js';
 
 const CLI_VERSION = '0.2.1';
-const NPM_PACKAGE = '@recube/cli';
+const NPM_PACKAGE = '@nationsglory/cli';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
 
