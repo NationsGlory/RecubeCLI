@@ -23,6 +23,7 @@ import {
 } from './commands/channels.js';
 import { versionsListCommand } from './commands/versions.js';
 import { doctorCommand } from './commands/doctor.js';
+import { corePublishCommand, coreListCommand } from './commands/core.js';
 import {
   draftCreateCommand,
   draftListCommand,
@@ -189,6 +190,50 @@ versions
   .option('-c, --channel <name>', 'filtrer par channel')
   .action(async (tenant: string, opts: { channel?: string }) => {
     await versionsListCommand(tenant, { channel: opts.channel });
+  });
+
+// ── recube-core (anti-cheat agent) ───────────────────────────────────────
+// publish accepte service-token (rcs_) — c'est le chemin CI (cf. core.ts).
+const core = program
+  .command('core')
+  .description('Gestion recube-core (anti-cheat)');
+
+core
+  .command('publish')
+  .description('Publier un build recube-core sur un channel (token de service rcs_ autorisé = CI)')
+  .requiredOption('-t, --tenant <t>', 'slug du tenant (ex : nationsglory)')
+  .option('-c, --channel <c>', 'channel cible', 'tenant-wide')
+  .requiredOption('-V, --version <v>', 'tag de version (ex : 0.4.0)')
+  .option('--file <path>', 'jar local à uploader (multipart, hash serveur) ; OU --url/--sha256')
+  .option('--url <key>', 'clé R2 relative déjà hébergée (ex : recube-core/0.4.0.jar ; PAS une URL absolue)')
+  .option('--sha256 <h>', 'sha256 attendu (requis avec --url ; doit correspondre au hash enregistré)')
+  .action(
+    async (opts: {
+      tenant?: string;
+      channel?: string;
+      version?: string;
+      file?: string;
+      url?: string;
+      sha256?: string;
+    }) => {
+      await corePublishCommand({
+        tenant: opts.tenant,
+        channel: opts.channel,
+        version: opts.version,
+        file: opts.file,
+        url: opts.url,
+        sha256: opts.sha256,
+      });
+    }
+  );
+
+core
+  .command('list')
+  .description('Afficher le recube-core courant d\'un channel (version/sha256/url)')
+  .requiredOption('-t, --tenant <t>', 'slug du tenant')
+  .option('-c, --channel <c>', 'channel (défaut : tenant-wide)')
+  .action(async (opts: { tenant?: string; channel?: string }) => {
+    await coreListCommand({ tenant: opts.tenant, channel: opts.channel });
   });
 
 // ── drafts (mutable build staging) ───────────────────────────────────────

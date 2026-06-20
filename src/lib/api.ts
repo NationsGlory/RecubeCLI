@@ -189,6 +189,107 @@ export class RecubeApiClient {
     };
   }
 
+  // ── recube-core (anti-cheat agent) ────────────────────────────────
+  // Publish a recube-core build to a launcher channel and read the current
+  // latest. Base path mirrors the launcher draft routes :
+  //   POST /launcher/{tenant}/{channel}/core/publish
+  //   GET  /launcher/{tenant}/{channel}/recube-core/latest
+  // The publish accepts either a multipart upload (--file) or a JSON body
+  // referencing an already-hosted R2 object by RELATIVE KEY ({url, sha256,
+  // version}, where `url` is a relative R2 key, not an absolute URL).
+  private launcherBase(tenant: string, channel: string): string {
+    return `/launcher/${encodeURIComponent(tenant)}/${encodeURIComponent(channel)}`;
+  }
+
+  /**
+   * Publish a recube-core build by referencing an object ALREADY HOSTED in R2,
+   * passed as a RELATIVE R2 KEY (e.g. `recube-core/0.4.0.jar`). The server does
+   * NOT fetch the URL and does NOT re-verify the sha256 against fetched bytes —
+   * it rejects absolute URLs and only accepts relative keys. The provided
+   * sha256 must match what was registered for that hash (allowlist gate). To
+   * publish a LOCAL jar (server computes/checks the hash for you), use --file
+   * (corePublishFile) instead. Service tokens (rcs_) are allowed here — this is
+   * the CI path.
+   */
+  async corePublishByUrl(
+    tenant: string,
+    channel: string,
+    payload: { version: string; url: string; sha256: string }
+  ): Promise<{ [k: string]: unknown }> {
+    const d = await this.post<{ data?: Record<string, unknown> } & Record<string, unknown>>(
+      `${this.launcherBase(tenant, channel)}/core/publish`,
+      payload
+    );
+    return (d?.data ?? d ?? {}) as { [k: string]: unknown };
+  }
+
+  /**
+   * Publish a recube-core build by streaming the jar as multipart/form-data.
+   * Fields : `version` + `file` (the jar). The server computes/stores the
+   * sha256. Uses an undici-compatible FormData + ReadableStream body.
+   */
+  async corePublishFile(
+    tenant: string,
+    channel: string,
+    payload: { version: string; filePath: string; fileName?: string; sha256?: string }
+  ): Promise<{ [k: string]: unknown }> {
+    const { createReadStream } = await import('node:fs');
+    const { stat } = await import('node:fs/promises');
+    const nodePath = (await import('node:path')).default;
+
+    const fstat = await stat(payload.filePath);
+    const fileName = payload.fileName ?? nodePath.basename(payload.filePath);
+
+    const form = new FormData();
+    form.set('version', payload.version);
+    if (payload.sha256) form.set('sha256', payload.sha256);
+    // Wrap the read stream as a Blob-like via undici File from a stream is not
+    // portable ; read into a Blob keeps it simple and the core jar is small.
+    const chunks: Buffer[] = [];
+    await new Promise<void>((resolve, reject) => {
+      const rs = createReadStream(payload.filePath);
+      rs.on('data', (c: string | Buffer) => {
+        chunks.push(typeof c === 'string' ? Buffer.from(c) : c);
+      });
+      rs.on('end', () => resolve());
+      rs.on('error', reject);
+    });
+    const blob = new Blob([Buffer.concat(chunks)], { type: 'application/java-archive' });
+    form.set('file', blob, fileName);
+
+    const res = await fetch(this.url(`${this.launcherBase(tenant, channel)}/core/publish`), {
+      method: 'POST',
+      // NB: do NOT set Content-Type — fetch derives the multipart boundary.
+      headers: this.headers(),
+      body: form,
+    });
+    const out = await this.parse<{ data?: Record<string, unknown> } & Record<string, unknown>>(
+      res
+    );
+    void fstat; // size available if the server ever wants it; kept for clarity
+    return (out?.data ?? out ?? {}) as { [k: string]: unknown };
+  }
+
+  /**
+   * Current recube-core for a channel. Returns null on 204 (none published).
+   */
+  async coreLatest(
+    tenant: string,
+    channel: string
+  ): Promise<{ version?: string; sha256?: string; url?: string; [k: string]: unknown } | null> {
+    const res = await fetch(
+      this.url(`${this.launcherBase(tenant, channel)}/recube-core/latest`),
+      { method: 'GET', headers: this.headers() }
+    );
+    if (res.status === 204) return null;
+    const d = await this.parse<{ data?: Record<string, unknown> } & Record<string, unknown>>(
+      res
+    );
+    const inner = (d?.data ?? d ?? null) as Record<string, unknown> | null;
+    if (!inner || Object.keys(inner).length === 0) return null;
+    return inner as { version?: string; sha256?: string; url?: string; [k: string]: unknown };
+  }
+
   // ── Versions (per tenant/channel) ─────────────────────────────────
   // Laravel exposes /v1/games/{slug}/branches → returns branches with latest
   // version. Tolerate either shape ; if API changes, adjust here only.
