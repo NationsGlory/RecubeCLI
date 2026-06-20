@@ -14,7 +14,16 @@
  * higher-level commands are responsible for refreshing tokens before calling.
  */
 
-import type { Channel, Game, UserProfile, Version } from '../types.js';
+import type {
+  Channel,
+  Draft,
+  DraftDiff,
+  DraftInitiateSlot,
+  DraftPublishResult,
+  Game,
+  UserProfile,
+  Version,
+} from '../types.js';
 
 export interface ApiClientOptions {
   apiBase: string;
@@ -76,6 +85,108 @@ export class RecubeApiClient {
   }): Promise<Channel> {
     const data = await this.post<{ data?: Channel } & Channel>('/launcher/channels', payload);
     return (data.data ?? data) as Channel;
+  }
+
+  // ── Drafts (mutable build staging) ────────────────────────────────
+  // Base path: /launcher/{tenant}/{channel}/drafts. All return Laravel
+  // resource envelopes `{ data: ... }` — we unwrap to the inner payload.
+  private draftsBase(tenant: string, channel: string): string {
+    return `/launcher/${encodeURIComponent(tenant)}/${encodeURIComponent(channel)}/drafts`;
+  }
+
+  async createDraft(
+    tenant: string,
+    channel: string,
+    payload: { version_tag: string; base_build_id?: string }
+  ): Promise<Draft> {
+    const d = await this.post<{ data?: Draft } & Draft>(this.draftsBase(tenant, channel), payload);
+    return (d.data ?? d) as Draft;
+  }
+
+  async listDrafts(tenant: string, channel: string): Promise<Draft[]> {
+    const d = await this.get<{ data?: Draft[] } | Draft[]>(this.draftsBase(tenant, channel));
+    return Array.isArray(d) ? d : d.data ?? [];
+  }
+
+  async getDraft(tenant: string, channel: string, draftId: string): Promise<Draft> {
+    const d = await this.get<{ data?: Draft } & Draft>(
+      `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}`
+    );
+    return (d.data ?? d) as Draft;
+  }
+
+  async draftFileInitiate(
+    tenant: string,
+    channel: string,
+    draftId: string,
+    payload: { path: string; sha256: string; size: number }
+  ): Promise<DraftInitiateSlot> {
+    const d = await this.post<{ data?: DraftInitiateSlot } & DraftInitiateSlot>(
+      `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}/files/initiate`,
+      payload
+    );
+    return (d.data ?? d) as DraftInitiateSlot;
+  }
+
+  async draftFileCommit(
+    tenant: string,
+    channel: string,
+    draftId: string,
+    payload: { path: string; sha256: string; size: number; exec?: boolean }
+  ): Promise<{ action?: string; [k: string]: unknown }> {
+    const d = await this.post<{ data?: Record<string, unknown> } & Record<string, unknown>>(
+      `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}/files`,
+      payload
+    );
+    return (d.data ?? d) as { action?: string; [k: string]: unknown };
+  }
+
+  async draftFileRemove(
+    tenant: string,
+    channel: string,
+    draftId: string,
+    pathToRemove: string
+  ): Promise<{ [k: string]: unknown }> {
+    const d = await this.del<{ data?: Record<string, unknown> } & Record<string, unknown>>(
+      `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}/files`,
+      { path: pathToRemove }
+    );
+    return (d?.data ?? d ?? {}) as { [k: string]: unknown };
+  }
+
+  async draftDiff(tenant: string, channel: string, draftId: string): Promise<DraftDiff> {
+    const d = await this.get<{ data?: DraftDiff } & DraftDiff>(
+      `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}/diff`
+    );
+    return (d.data ?? d) as DraftDiff;
+  }
+
+  async draftPublish(
+    tenant: string,
+    channel: string,
+    draftId: string,
+    payload: { reference: string; note: string }
+  ): Promise<DraftPublishResult> {
+    const d = await this.post<{ data?: DraftPublishResult } & DraftPublishResult>(
+      `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}/publish`,
+      payload
+    );
+    return (d.data ?? d) as DraftPublishResult;
+  }
+
+  async draftAbandon(
+    tenant: string,
+    channel: string,
+    draftId: string
+  ): Promise<{ status?: string; deleted_objects?: number; [k: string]: unknown }> {
+    const d = await this.del<{ data?: Record<string, unknown> } & Record<string, unknown>>(
+      `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}`
+    );
+    return (d?.data ?? d ?? {}) as {
+      status?: string;
+      deleted_objects?: number;
+      [k: string]: unknown;
+    };
   }
 
   // ── Versions (per tenant/channel) ─────────────────────────────────
@@ -170,6 +281,32 @@ export class RecubeApiClient {
       method: 'POST',
       headers: { ...this.headers(), 'Content-Type': 'application/json' },
       body: JSON.stringify(body ?? {}),
+    });
+    return this.parse<T>(res);
+  }
+
+  async put<T>(pathname: string, body: unknown): Promise<T> {
+    const res = await fetch(this.url(pathname), {
+      method: 'PUT',
+      headers: { ...this.headers(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+    return this.parse<T>(res);
+  }
+
+  /**
+   * DELETE with an optional JSON body. The draft file-removal endpoint
+   * (`DELETE /drafts/{id}/files`) keys the target by a `{path}` body rather
+   * than a path segment, so we must support a request body on DELETE.
+   */
+  async del<T>(pathname: string, body?: unknown): Promise<T> {
+    const res = await fetch(this.url(pathname), {
+      method: 'DELETE',
+      headers:
+        body === undefined
+          ? this.headers()
+          : { ...this.headers(), 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
     return this.parse<T>(res);
   }

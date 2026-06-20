@@ -115,3 +115,62 @@ export interface Version {
   created_at?: string;
   files_count?: number;
 }
+
+// ── Drafts (mutable build staging, backend commit 0dbfc7f) ───────────────
+// A draft is an open, mutable file-set seeded from an optional base build.
+// add/rm/diff/publish operate on the draft; publish finalizes it into an
+// immutable build (separate promote step still required to go live).
+
+/** Pointer to the "current" draft tracked locally in `.recube/draft.json`. */
+export interface DraftState {
+  tenant: string;
+  channel: string;
+  draftId: string;
+  /** Version tag the draft will publish as (informational, set at create). */
+  version?: string;
+}
+
+/** Draft record as returned by /drafts (list/create/status). */
+export interface Draft {
+  id: string;
+  tenant?: string;
+  channel?: string;
+  version_tag?: string;
+  base_build_id?: string | null;
+  status?: 'open' | 'published' | 'abandoned' | string;
+  resolved_file_count?: number;
+  resolved_files?: { path: string; sha256: string; size: number; exec?: boolean }[];
+  live_moved_since_base?: boolean;
+  created_at?: string;
+  [k: string]: unknown;
+}
+
+/** Slot returned by POST /drafts/{id}/files/initiate. */
+export interface DraftInitiateSlot {
+  action: 'skip' | 'upload';
+  upload_url?: string;
+  upload_method?: string;
+  upload_headers?: Record<string, string>;
+}
+
+/** GET /drafts/{id}/diff. */
+export interface DraftDiff {
+  added: { path: string; sha256?: string; size?: number }[];
+  replaced: { path: string; sha256?: string; size?: number }[];
+  removed: { path: string }[];
+  base_file_count?: number;
+  live_moved_since_base?: boolean;
+}
+
+/** POST /drafts/{id}/publish. */
+export interface DraftPublishResult {
+  status?: string;
+  finalized_build?: {
+    build_id?: string;
+    manifest_sha256?: string;
+    files_count?: number;
+    [k: string]: unknown;
+  };
+  promoted?: boolean;
+  [k: string]: unknown;
+}

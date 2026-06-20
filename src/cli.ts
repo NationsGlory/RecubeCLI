@@ -17,6 +17,16 @@ import {
 } from './commands/channels.js';
 import { versionsListCommand } from './commands/versions.js';
 import { doctorCommand } from './commands/doctor.js';
+import {
+  draftCreateCommand,
+  draftListCommand,
+  draftStatusCommand,
+  draftAddCommand,
+  draftRmCommand,
+  draftDiffCommand,
+  draftPublishCommand,
+  draftAbandonCommand,
+} from './commands/draft.js';
 
 const program = new Command();
 
@@ -134,6 +144,86 @@ versions
   .option('-c, --channel <name>', 'filtrer par channel')
   .action(async (tenant: string, opts: { channel?: string }) => {
     await versionsListCommand(tenant, { channel: opts.channel });
+  });
+
+// ── drafts (mutable build staging) ───────────────────────────────────────
+const draft = program
+  .command('draft')
+  .description('Staging de build mutable : create/add/rm/diff/publish (scope launcher:draft)');
+
+draft
+  .command('create')
+  .description('Créer un draft (devient le draft courant, tracké dans .recube/draft.json)')
+  .requiredOption('-t, --tenant <slug>', 'tenant slug (ex: nationsglory)')
+  .requiredOption('-c, --channel <name>', 'channel (ex: stable, beta)')
+  // `--version-tag` (PAS `--version`) : `--version` entre en collision avec le
+  // flag version global de commander (program.version) → imprime juste "0.2.1".
+  // Même convention que `recube publish --version-tag`.
+  .requiredOption('-V, --version-tag <semver>', 'version tag du futur build (ex: 1.0.17)')
+  .option('--from <buildId>', 'base build id à seeder (défaut: dernier build live du channel)')
+  .action(
+    async (opts: { tenant?: string; channel?: string; versionTag?: string; from?: string }) => {
+      await draftCreateCommand({
+        tenant: opts.tenant,
+        channel: opts.channel,
+        version: opts.versionTag,
+        from: opts.from,
+      });
+    }
+  );
+
+draft
+  .command('list')
+  .description('Lister les drafts (tenant/channel du draft courant, ou via flags)')
+  .option('-t, --tenant <slug>', 'tenant slug')
+  .option('-c, --channel <name>', 'channel')
+  .action(async (opts: { tenant?: string; channel?: string }) => {
+    await draftListCommand({ tenant: opts.tenant, channel: opts.channel });
+  });
+
+draft
+  .command('status')
+  .description('Statut du draft courant (fichiers résolus, base, live bougé)')
+  .action(async () => {
+    await draftStatusCommand();
+  });
+
+draft
+  .command('add <jar>')
+  .description('Ajouter/remplacer un fichier dans le draft courant (hash + upload R2 + commit)')
+  .option('--path <virtualPath>', 'chemin cible dans le build (défaut: mods/<basename>)')
+  .action(async (jar: string, opts: { path?: string }) => {
+    await draftAddCommand(jar, { path: opts.path });
+  });
+
+draft
+  .command('rm <path>')
+  .description('Retirer un fichier du draft courant')
+  .action(async (p: string) => {
+    await draftRmCommand(p);
+  });
+
+draft
+  .command('diff')
+  .description('Diff du draft courant vs sa base (added/replaced/removed)')
+  .action(async () => {
+    await draftDiffCommand();
+  });
+
+draft
+  .command('publish')
+  .description('Finaliser le draft courant en build immuable (scope launcher:publish ; PAS promote)')
+  .requiredOption('-r, --reference <ref>', 'reference du build (≤ 96 caractères)')
+  .requiredOption('-n, --note <note>', 'note/changelog (6 à 2000 caractères)')
+  .action(async (opts: { reference?: string; note?: string }) => {
+    await draftPublishCommand({ reference: opts.reference, note: opts.note });
+  });
+
+draft
+  .command('abandon')
+  .description('Abandonner le draft courant (supprime les blobs orphelins) + clear local')
+  .action(async () => {
+    await draftAbandonCommand();
   });
 
 program
