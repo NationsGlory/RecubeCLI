@@ -7,10 +7,12 @@
 
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
+import { theme } from '../ui/theme.js';
 
 export const ui = {
   intro(title: string): void {
-    p.intro(chalk.bgCyan.black(` ${title} `));
+    // Brand-violet pill instead of cyan for a consistent identity.
+    p.intro(chalk.bgHex('#7C3AED').white(` ${title} `));
   },
   outro(msg: string): void {
     p.outro(msg);
@@ -59,4 +61,4 @@ export const ui = {
   },
 };
 
-export { chalk };
+export { chalk, theme };

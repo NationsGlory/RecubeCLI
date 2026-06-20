@@ -17,7 +17,7 @@ import { exchangeAuthorizationCode } from '../auth/client.js';
 import { loadCredentials, saveCredentials } from '../auth/store.js';
 import { RecubeApiClient } from '../lib/api.js';
 import { loadConfig } from '../lib/config.js';
-import { ui, chalk } from '../lib/ui.js';
+import { ui, theme } from '../lib/ui.js';
 
 const DEFAULT_SCOPE = 'launcher:publish profile:read';
 
@@ -56,7 +56,7 @@ export async function loginCommand(opts: { scope?: string; force?: boolean } = {
   });
 
   ui.note(
-    `URL :\n${chalk.cyan(authorizeUrl)}\n\nSi le navigateur ne s'ouvre pas automatiquement, copie l'URL ci-dessus.`,
+    `URL :\n${theme.value(authorizeUrl)}\n\nSi le navigateur ne s'ouvre pas automatiquement, copie l'URL ci-dessus.`,
     'Ouverture du navigateur...'
   );
   openBrowser(authorizeUrl);
@@ -110,6 +110,6 @@ export async function loginCommand(opts: { scope?: string; force?: boolean } = {
   });
 
   ui.outro(
-    `${chalk.green('OK')} Connecté en tant que ${chalk.bold(userLabel)} (scopes: ${tokens!.scope || scope})`
+    `${theme.success('OK')} Connecté en tant que ${theme.bold(userLabel)} (scopes: ${theme.dim(tokens!.scope || scope)})`
   );
 }

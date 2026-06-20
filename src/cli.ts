@@ -7,6 +7,10 @@
  */
 
 import { Command } from 'commander';
+import { printHome } from './ui/home.js';
+import { renderBanner } from './ui/banner.js';
+import { theme } from './ui/theme.js';
+import { completionCommand } from './commands/completion.js';
 import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
 import { whoamiCommand } from './commands/whoami.js';
@@ -30,16 +34,53 @@ import {
 
 const program = new Command();
 
+// Rich help: brand banner on top + themed Examples section at the bottom
+// (commander 12 has no per-element help styling hooks, so the visual identity
+// comes from the banner header and the colored addHelpText blocks).
 program
   .name('recube')
   .description('Recube developer CLI — publish game builds with OAuth auth')
-  .version('0.2.1', '-v, --version', 'print version');
+  .version('0.2.1', '-v, --version', 'print version')
+  .addHelpText('beforeAll', () => renderBanner() + '\n')
+  .addHelpText(
+    'after',
+    () =>
+      '\n' +
+      theme.title('Examples:') +
+      '\n' +
+      [
+        `  ${theme.command('recube login --scope "launcher:publish launcher:draft profile:read"')}`,
+        `  ${theme.command('recube doctor')}`,
+        `  ${theme.command('recube publish -t nationsglory -c stable -V 1.0.0 -d ./build')}`,
+        `  ${theme.command('recube draft create -t nationsglory -c beta -V 1.0.1')}`,
+        `  ${theme.command('recube channels list nationsglory')}`,
+        '',
+        `${theme.title('Shell completion:')}`,
+        `  ${theme.command('recube completion bash')}  ${theme.dim('# then follow the printed install hint')}`,
+        '',
+        `${theme.dim('Docs: ')}${theme.value('https://recube.gg/developers')}`,
+      ].join('\n') +
+      '\n'
+  );
 
 program
   .command('login')
   .description("S'authentifier auprès de recube.gg (OAuth PKCE)")
   .option('--scope <scopes>', 'OAuth scopes (space-separated)')
   .option('-f, --force', 'force re-login même si déjà connecté')
+  .addHelpText(
+    'after',
+    () =>
+      '\n' +
+      theme.title('Examples:') +
+      '\n' +
+      [
+        `  ${theme.command('recube login')}`,
+        `  ${theme.command('recube login --scope "launcher:publish launcher:draft profile:read"')}`,
+        `  ${theme.command('recube login --force')}`,
+      ].join('\n') +
+      '\n'
+  )
   .action(async (opts: { scope?: string; force?: boolean }) => {
     await loginCommand(opts);
   });
@@ -236,8 +277,28 @@ program
   });
 
 program
+  .command('completion <shell>')
+  .description('Imprimer le script de complétion shell (bash|zsh|fish) + instructions')
+  .addHelpText(
+    'after',
+    () =>
+      '\n' +
+      theme.title('Examples:') +
+      '\n' +
+      [
+        `  ${theme.command('recube completion bash')} ${theme.dim('> ~/.recube-completion.bash')}`,
+        `  ${theme.command('recube completion zsh')}  ${theme.dim('> "${fpath[1]}/_recube"')}`,
+        `  ${theme.command('recube completion fish')} ${theme.dim('> ~/.config/fish/completions/recube.fish')}`,
+      ].join('\n') +
+      '\n'
+  )
+  .action((shell: string) => {
+    completionCommand(shell);
+  });
+
+program
   .configureOutput({
-    outputError: (str, write) => write(str),
+    outputError: (str, write) => write(theme.error(str)),
   });
 
 // Global async error handler — anything that bubbles out of an action() ends here.
@@ -247,8 +308,15 @@ process.on('unhandledRejection', (err) => {
   process.exit(1);
 });
 
+// No args (bare `recube`) → onboarding home screen instead of commander's
+// terse usage line. argv = [node, cli.js].
+if (process.argv.length <= 2) {
+  printHome();
+  process.exit(0);
+}
+
 program.parseAsync(process.argv).catch((err: Error) => {
   // eslint-disable-next-line no-console
-  console.error(`recube: ${err.message}`);
+  console.error(theme.error(`recube: ${err.message}`));
   process.exit(1);
 });

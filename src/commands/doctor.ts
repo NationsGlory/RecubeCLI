@@ -18,7 +18,7 @@ import path from 'node:path';
 import { loadConfig } from '../lib/config.js';
 import { loadCredentials, tokensAreExpired } from '../auth/store.js';
 import { RecubeApiClient, ApiError } from '../lib/api.js';
-import { ui, chalk } from '../lib/ui.js';
+import { ui, chalk, theme } from '../lib/ui.js';
 
 const CLI_VERSION = '0.2.1';
 const NPM_PACKAGE = '@nationsglory/cli';
@@ -84,12 +84,12 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
   const hasFail = results.some((r) => r.status === 'fail');
   const hasWarn = results.some((r) => r.status === 'warn');
   if (hasFail) {
-    ui.outro(`${chalk.red('FAIL')} — at least one critical check failed.`);
+    ui.outro(`${theme.error('FAIL')} — at least one critical check failed.`);
     process.exitCode = 1;
   } else if (hasWarn) {
-    ui.outro(`${chalk.yellow('WARN')} — non-blocking issues detected.`);
+    ui.outro(`${theme.warn('WARN')} — non-blocking issues detected.`);
   } else {
-    ui.outro(`${chalk.green('OK')} — env looks healthy.`);
+    ui.outro(`${theme.success('OK')} — env looks healthy.`);
   }
 }
 

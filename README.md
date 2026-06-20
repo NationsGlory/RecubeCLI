@@ -216,6 +216,34 @@ List published versions. Tries (in order) :
 If admin scope was denied at step 1, the output warns explicitly instead of
 returning silently empty.
 
+### `recube completion <bash|zsh|fish>`
+
+Print a shell completion script (commands, subcommands, flags) plus install
+instructions (as leading comments). Pure stdout, no ANSI, safe to redirect.
+
+```bash
+# bash
+recube completion bash > ~/.recube-completion.bash
+echo 'source ~/.recube-completion.bash' >> ~/.bashrc
+
+# zsh
+recube completion zsh > "${fpath[1]}/_recube"   # then restart your shell
+
+# fish
+recube completion fish > ~/.config/fish/completions/recube.fish
+```
+
+## Help & onboarding
+
+- `recube` (no args) prints the brand banner + a **Getting started** path
+  (login with scope, doctor/whoami, publish, drafts) — the fast track for new
+  devs.
+- `recube --help` shows the full command list with an **Examples** section.
+- Banner color adapts to the terminal: 24-bit truecolor (`#7C3AED`), 256-color
+  (xterm 99), 16-color magenta, or plain ASCII. Color is suppressed when
+  `NO_COLOR` is set, stdout is not a TTY (pipe/CI), or `TERM=dumb`; `FORCE_COLOR`
+  forces it on.
+
 ## Configuration
 
 File : `~/.recube/config.json` (Windows: `%APPDATA%/Recube/config.json`).
