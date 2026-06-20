@@ -1,0 +1,95 @@
+# Reusable composite action: add a built jar to an OPEN recube draft from CI.
+#
+# Flow (important): a HUMAN opens the draft on the web / via `recube draft create`
+# (OAuth), copies its id into the mod repo's secrets/vars, and CI uses a SERVICE
+# TOKEN (RECUBE_TOKEN=rcs_…, scope launcher:draft, ADD-ONLY) to drop its jar into
+# that draft on each push. The human then reviews + publishes (CI cannot
+# create/publish/promote).
+#
+# Usage (in a mod repo workflow):
+#   - uses: NationsGlory/RecubeCLI/.github/actions/recube-draft-add@main
+#     with:
+#       jar: build/libs/my-mod.jar
+#       tenant: nationsglory
+#       channel: beta
+#       draft-id: ${{ vars.RECUBE_DRAFT_ID }}
+#       token: ${{ secrets.RECUBE_TOKEN }}
+
+name: 'recube draft add'
+description: 'Ajoute un jar buildé à un draft recube ouvert (token de service, add-only).'
+
+inputs:
+  jar:
+    description: 'Chemin du jar à ajouter (ex: build/libs/my-mod.jar). Si vide, utilise `glob`.'
+    required: false
+  glob:
+    description: 'Glob de jars à ajouter (ex: build/libs/*.jar). Ignoré si `jar` est fourni.'
+    required: false
+  path:
+    description: "Chemin cible dans le build (défaut: mods/<nom de fichier>). Ne s'applique qu'avec `jar` unique."
+    required: false
+  tenant:
+    description: 'Tenant du draft (ex: nationsglory).'
+    required: true
+  channel:
+    description: 'Channel du draft (ex: stable, beta).'
+    required: true
+  draft-id:
+    description: "ID du draft ouvert (créé par un humain au préalable)."
+    required: true
+  token:
+    description: 'Token de service recube (rcs_…, scope launcher:draft). À passer via secrets.RECUBE_TOKEN.'
+    required: true
+  version:
+    description: "Tag de version du CLI recube à installer (défaut: latest)."
+    required: false
+    default: 'latest'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Installer recube CLI
+      shell: bash
+      env:
+        RECUBE_VERSION: ${{ inputs.version }}
+      run: |
+        curl -fsSL https://recube.gg/install.sh | sh
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Ajouter le(s) jar(s) au draft
+      shell: bash
+      env:
+        RECUBE_TOKEN: ${{ inputs.token }}
+        RECUBE_DRAFT_ID: ${{ inputs.draft-id }}
+        RECUBE_TENANT: ${{ inputs.tenant }}
+        RECUBE_CHANNEL: ${{ inputs.channel }}
+        INPUT_JAR: ${{ inputs.jar }}
+        INPUT_GLOB: ${{ inputs.glob }}
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        if [ -z "${RECUBE_TOKEN:-}" ]; then
+          echo "::error::token manquant — passe secrets.RECUBE_TOKEN à l'action." >&2
+          exit 1
+        fi
+        if [ -n "${INPUT_JAR:-}" ]; then
+          if [ -n "${INPUT_PATH:-}" ]; then
+            recube draft add "$INPUT_JAR" --path "$INPUT_PATH"
+          else
+            recube draft add "$INPUT_JAR"
+          fi
+        elif [ -n "${INPUT_GLOB:-}" ]; then
+          shopt -s nullglob
+          matched=0
+          for f in $INPUT_GLOB; do
+            recube draft add "$f"
+            matched=$((matched+1))
+          done
+          if [ "$matched" -eq 0 ]; then
+            echo "::error::aucun fichier ne matche le glob: $INPUT_GLOB" >&2
+            exit 1
+          fi
+        else
+          echo "::error::fournis `jar` ou `glob`." >&2
+          exit 1
+        fi

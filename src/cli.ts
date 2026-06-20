@@ -233,11 +233,23 @@ draft
 
 draft
   .command('add <jar>')
-  .description('Ajouter/remplacer un fichier dans le draft courant (hash + upload R2 + commit)')
+  .description('Ajouter/remplacer un fichier dans un draft (hash + upload R2 + commit). Seule commande utilisable avec un token de service RECUBE_TOKEN (CI).')
   .option('--path <virtualPath>', 'chemin cible dans le build (défaut: mods/<basename>)')
-  .action(async (jar: string, opts: { path?: string }) => {
-    await draftAddCommand(jar, { path: opts.path });
-  });
+  // Ciblage CI : si pas de .recube/draft.json (ex GitHub Actions), pointer le
+  // draft explicitement (ou via env RECUBE_DRAFT_ID/RECUBE_TENANT/RECUBE_CHANNEL).
+  .option('--draft <id>', 'id du draft cible (CI ; défaut: .recube/draft.json ou env RECUBE_DRAFT_ID)')
+  .option('-t, --tenant <slug>', 'tenant du draft cible (CI ; ou env RECUBE_TENANT)')
+  .option('-c, --channel <name>', 'channel du draft cible (CI ; ou env RECUBE_CHANNEL)')
+  .action(
+    async (jar: string, opts: { path?: string; draft?: string; tenant?: string; channel?: string }) => {
+      await draftAddCommand(jar, {
+        path: opts.path,
+        draftId: opts.draft,
+        tenant: opts.tenant,
+        channel: opts.channel,
+      });
+    }
+  );
 
 draft
   .command('rm <path>')

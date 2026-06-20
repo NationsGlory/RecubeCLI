@@ -1,0 +1,48 @@
+# EXEMPLE — à COPIER dans le dépôt d'un mod (`.github/workflows/mod-ci.yml`).
+#
+# À chaque push sur main, build le jar (Gradle ici ; adapte pour Maven) puis
+# l'ajoute au draft recube OUVERT par un humain. Le CI ne fait QU'AJOUTER —
+# create/publish/promote restent manuels (review humaine via le web).
+#
+# Pré-requis côté dépôt de mod (Settings → Secrets and variables → Actions) :
+#   - Secret  RECUBE_TOKEN   = token de service rcs_… (scope launcher:draft, lié au tenant)
+#   - Variable RECUBE_DRAFT_ID = id du draft ouvert (donné par l'humain qui a fait `recube draft create`)
+#   - Variable RECUBE_TENANT   = ex nationsglory
+#   - Variable RECUBE_CHANNEL  = ex beta
+#
+# Cycle : humain ouvre le draft (web/CLI) → met l'ID en variable repo → chaque
+# push de mod ajoute son jar au draft → humain review + publish quand prêt.
+
+name: mod-ci
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-add:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Build du jar (Gradle) ───────────────────────────────────────────
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8' # adapte à ta toolchain mod (1.6.4 = Java 8)
+
+      - name: Build (gradle)
+        run: ./gradlew build --no-daemon
+        # Maven : remplace par `mvn -B package` et ajuste le chemin du jar ci-dessous.
+
+      # ── Ajout au draft recube (token de service, add-only) ──────────────
+      - name: Ajouter le jar au draft recube
+        uses: NationsGlory/RecubeCLI/.github/actions/recube-draft-add@main
+        with:
+          # Un seul jar : adapte le glob/chemin à ta sortie de build.
+          glob: build/libs/*.jar
+          tenant: ${{ vars.RECUBE_TENANT }}
+          channel: ${{ vars.RECUBE_CHANNEL }}
+          draft-id: ${{ vars.RECUBE_DRAFT_ID }}
+          token: ${{ secrets.RECUBE_TOKEN }}

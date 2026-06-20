@@ -21,6 +21,7 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
+import { getStoredUser } from '../auth/store.js';
 import { ApiError } from '../lib/api.js';
 import { hashFile } from '../lib/publish-pipeline.js';
 import {
@@ -49,30 +50,89 @@ function info(msg: string): void {
 }
 
 async function session(): Promise<AuthenticatedSession> {
+  let s: AuthenticatedSession;
   try {
-    return await getAuthenticatedSession();
+    s = await getAuthenticatedSession();
   } catch (err) {
     if (err instanceof NotLoggedInError) {
       fail(
         err.message +
           '\n  ' +
-          chalk.dim('recube login --scope "launcher:draft launcher:publish openid profile"')
+          chalk.dim('recube login --scope "launcher:draft launcher:publish openid profile"') +
+          '\n  ' +
+          chalk.dim('(ou, en CI : exporte RECUBE_TOKEN=rcs_… pour le mode token de service)')
       );
     }
     throw err;
   }
+  // Affiche le mode d'auth (sur stderr pour ne pas polluer un éventuel stdout
+  // machine-lisible).
+  if (s.serviceToken) {
+    console.error(chalk.dim('auth : token de service (RECUBE_TOKEN, add-only)'));
+  } else {
+    let who = '';
+    try {
+      const u = await getStoredUser();
+      who = u ? `@${u.handle ?? u.id}` : '(session OAuth)';
+    } catch {
+      who = '(session OAuth)';
+    }
+    console.error(chalk.dim(`auth : ${who}`));
+  }
+  return s;
+}
+
+/**
+ * Refuse net une commande hors add-only quand on est en token de service.
+ * Le serveur rejetterait de toute façon (rcs_ = launcher:draft add-only →
+ * 401 sur create/publish/diff/show), mais on coupe AVANT l'appel réseau avec
+ * un message clair. Appelé en tête des commandes non-add.
+ */
+function refuseServiceTokenForNonAdd(s: AuthenticatedSession, action: string): void {
+  if (s.serviceToken) {
+    fail(
+      `Token de service = dépôt de fichiers uniquement (recube draft add).\n  ` +
+        chalk.dim(
+          `${action} nécessite une connexion utilisateur (recube login) ou la review web. ` +
+            `Le draft doit être créé/publié par un humain ; le CI ne fait qu'ajouter ses jars.`
+        )
+    );
+  }
+}
+
+/**
+ * Résout le draft cible. En CI (token de service, pas de .recube/draft.json),
+ * accepte un draft fourni explicitement via opts (--draft/--tenant/--channel)
+ * ou via env (RECUBE_DRAFT_ID / RECUBE_TENANT / RECUBE_CHANNEL). Sinon, retombe
+ * sur le pointeur local `.recube/draft.json` (flux dev habituel).
+ */
+async function resolveDraft(opts?: {
+  draftId?: string;
+  tenant?: string;
+  channel?: string;
+}): Promise<DraftState> {
+  const draftId = opts?.draftId ?? process.env.RECUBE_DRAFT_ID?.trim();
+  const tenant = opts?.tenant ?? process.env.RECUBE_TENANT?.trim();
+  const channel = opts?.channel ?? process.env.RECUBE_CHANNEL?.trim();
+  if (draftId && tenant && channel) {
+    // Cible explicite (CI) — pas besoin du fichier local.
+    return { tenant, channel, draftId };
+  }
+  const st = await loadDraftState();
+  if (st) return st;
+  fail(
+    'Aucun draft courant.\n  ' +
+      chalk.dim('Dev   : recube draft create --tenant <t> --channel <c> --version-tag <v>') +
+      '\n  ' +
+      chalk.dim(
+        'CI    : --draft <id> --tenant <t> --channel <c> (ou env RECUBE_DRAFT_ID/RECUBE_TENANT/RECUBE_CHANNEL)'
+      )
+  );
 }
 
 /** Load the current draft pointer or fail with a clear hint. */
 async function requireDraft(): Promise<DraftState> {
-  const st = await loadDraftState();
-  if (!st) {
-    fail(
-      'Aucun draft courant.\n  ' +
-        chalk.dim('Crée-en un : recube draft create --tenant <t> --channel <c> --version <v>')
-    );
-  }
-  return st;
+  return resolveDraft();
 }
 
 /** Map an ApiError to a clear, command-specific message. */
@@ -129,6 +189,7 @@ export async function draftCreateCommand(opts: {
   const version = opts.version;
 
   const s = await session();
+  refuseServiceTokenForNonAdd(s, 'create');
   try {
     const draft = await s.api.createDraft(tenant, channel, {
       version_tag: version,
@@ -163,6 +224,7 @@ export async function draftListCommand(opts: {
   }
 
   const s = await session();
+  refuseServiceTokenForNonAdd(s, 'list');
   try {
     const drafts = await s.api.listDrafts(tenant, channel);
     if (drafts.length === 0) {
@@ -187,6 +249,7 @@ export async function draftListCommand(opts: {
 export async function draftStatusCommand(): Promise<void> {
   const st = await requireDraft();
   const s = await session();
+  refuseServiceTokenForNonAdd(s, 'status');
   try {
     const d = await s.api.getDraft(st.tenant, st.channel, st.draftId);
     info(`Draft ${chalk.bold(d.id)}  (${st.tenant}/${st.channel})`);
@@ -206,8 +269,18 @@ export async function draftStatusCommand(): Promise<void> {
   }
 }
 
-export async function draftAddCommand(jar: string, opts: { path?: string }): Promise<void> {
-  const st = await requireDraft();
+export async function draftAddCommand(
+  jar: string,
+  opts: { path?: string; draftId?: string; tenant?: string; channel?: string }
+): Promise<void> {
+  // `add` est la SEULE commande utilisable par un token de service (rcs_,
+  // add-only). En CI, le draft est ciblé via --draft/--tenant/--channel ou env
+  // (le draft a été créé par un humain au préalable).
+  const st = await resolveDraft({
+    draftId: opts.draftId,
+    tenant: opts.tenant,
+    channel: opts.channel,
+  });
   const abs = path.resolve(jar);
   const fstat = await stat(abs).catch(() => null);
   if (!fstat || !fstat.isFile()) fail(`pas un fichier : ${abs}`);
@@ -268,6 +341,7 @@ export async function draftRmCommand(targetPath: string): Promise<void> {
   const st = await requireDraft();
   const virtual = targetPath.split(path.sep).join('/');
   const s = await session();
+  refuseServiceTokenForNonAdd(s, 'rm');
   try {
     await s.api.draftFileRemove(st.tenant, st.channel, st.draftId, virtual);
     ok(`${virtual} retiré du draft ${chalk.bold(st.draftId)}.`);
@@ -279,6 +353,7 @@ export async function draftRmCommand(targetPath: string): Promise<void> {
 export async function draftDiffCommand(): Promise<void> {
   const st = await requireDraft();
   const s = await session();
+  refuseServiceTokenForNonAdd(s, 'diff');
   try {
     const d = await s.api.draftDiff(st.tenant, st.channel, st.draftId);
     const added = d.added ?? [];
@@ -322,6 +397,7 @@ export async function draftPublishCommand(opts: {
   }
 
   const s = await session();
+  refuseServiceTokenForNonAdd(s, 'publish');
   try {
     const res = await s.api.draftPublish(st.tenant, st.channel, st.draftId, {
       reference: opts.reference,
@@ -349,6 +425,7 @@ export async function draftPublishCommand(opts: {
 export async function draftAbandonCommand(): Promise<void> {
   const st = await requireDraft();
   const s = await session();
+  refuseServiceTokenForNonAdd(s, 'abandon');
   try {
     const res = await s.api.draftAbandon(st.tenant, st.channel, st.draftId);
     await clearDraftState();
