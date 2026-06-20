@@ -4,6 +4,33 @@ CLI for Recube developers. Publish game builds (Minecraft tenants — NationsGlo
 Paladium, …) via the Recube launcher API, with OAuth authentication instead of
 hand-passed bearer tokens.
 
+## Installation (recommandée — sans Node)
+
+Binaire standalone, aucune dépendance Node requise :
+
+```bash
+# Linux / macOS
+curl -fsSL https://recube.gg/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://recube.gg/install.ps1 | iex
+```
+
+Puis :
+
+```bash
+recube login
+recube publish
+```
+
+Le script détecte ton OS/arch, télécharge le bon binaire depuis les GitHub
+Releases, vérifie le checksum SHA-256 et l'installe sur ton PATH. Ré-exécuter =
+mise à jour.
+
+### Alternative : via npm (nécessite Node 20+)
+
 ```bash
 npm install -g @nationsglory/cli
 recube login

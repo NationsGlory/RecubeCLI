@@ -32,6 +32,14 @@ const CUBE_LINES = [
 
 const WORDMARK = '      recube';
 
+// Compact cube — a small mark that fits cleanly inside the rounded welcome box
+// (Claude-Code style). 4 lines tall vs the 9-line full art. Single flat color.
+const COMPACT_CUBE_LINES = [
+  ' ____ ',
+  '/\\___\\',
+  '\\/___/',
+];
+
 type ColorLevel = 'truecolor' | 'ansi256' | 'ansi16' | 'none';
 
 const RESET = '\x1b[0m';
@@ -106,4 +114,14 @@ export function renderBanner(): string {
 /** Print the banner to stdout. */
 export function printBanner(): void {
   process.stdout.write(renderBanner() + '\n');
+}
+
+/**
+ * Compact cube as an array of (optionally colored) lines, for embedding inside
+ * the rounded welcome box. Each line is independently SGR-wrapped + RESET so it
+ * is safe to place next to other content in a box.
+ */
+export function compactCubeLines(): string[] {
+  const level = detectLevel();
+  return COMPACT_CUBE_LINES.map((l) => colorize(l, level, 'cube'));
 }

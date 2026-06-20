@@ -1,0 +1,104 @@
+# Build standalone recube binaries (Node SEA) for all platforms and attach them
+# to the GitHub Release on a version tag (e.g. v0.3.0).
+#
+# install.sh / install.ps1 download from this release's assets:
+#   recube-linux-x64, recube-linux-arm64, recube-macos-x64, recube-macos-arm64,
+#   recube-windows-x64.exe   (+ a .sha256 sidecar each)
+#
+# No Node required on the user's machine — the binary IS a Node runtime with the
+# bundled CLI injected as a SEA blob.
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag à (re)builder (ex: v0.3.0). Vide = HEAD sans upload.'
+        required: false
+
+permissions:
+  contents: write # create/upload release assets
+
+jobs:
+  build:
+    name: build ${{ matrix.target.name }}
+    runs-on: ${{ matrix.target.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: linux-x64,    os: ubuntu-latest,   asset: recube-linux-x64 }
+          - { name: linux-arm64,  os: ubuntu-24.04-arm, asset: recube-linux-arm64 }
+          - { name: macos-x64,    os: macos-13,        asset: recube-macos-x64 }
+          - { name: macos-arm64,  os: macos-14,        asset: recube-macos-arm64 }
+          - { name: windows-x64,  os: windows-latest,  asset: recube-windows-x64.exe }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build standalone binary
+        run: npm run build:binary
+
+      - name: Compute checksum (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd dist-bundle
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${{ matrix.target.asset }}" > "${{ matrix.target.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.target.asset }}" > "${{ matrix.target.asset }}.sha256"
+          fi
+
+      - name: Compute checksum (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd dist-bundle
+          $h = (Get-FileHash -Algorithm SHA256 -Path "${{ matrix.target.asset }}").Hash.ToLower()
+          "$h  ${{ matrix.target.asset }}" | Out-File -Encoding ascii "${{ matrix.target.asset }}.sha256"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target.name }}
+          path: |
+            dist-bundle/${{ matrix.target.asset }}
+            dist-bundle/${{ matrix.target.asset }}.sha256
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name 'recube-*' \) -exec cp {} release/ \;
+          ls -la release
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

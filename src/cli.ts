@@ -39,14 +39,16 @@ const program = new Command();
 // comes from the banner header and the colored addHelpText blocks).
 program
   .name('recube')
-  .description('Recube developer CLI — publish game builds with OAuth auth')
-  .version('0.2.1', '-v, --version', 'print version')
+  .description('Recube CLI développeur — publie des builds de jeu avec auth OAuth')
+  .version('0.2.1', '-v, --version', 'afficher la version')
+  // Traduit le flag d'aide intégré de commander (sinon "display help for command").
+  .helpOption('-h, --help', "afficher l'aide")
   .addHelpText('beforeAll', () => renderBanner() + '\n')
   .addHelpText(
     'after',
     () =>
       '\n' +
-      theme.title('Examples:') +
+      theme.title('Exemples :') +
       '\n' +
       [
         `  ${theme.command('recube login --scope "launcher:publish launcher:draft profile:read"')}`,
@@ -55,10 +57,10 @@ program
         `  ${theme.command('recube draft create -t nationsglory -c beta -V 1.0.1')}`,
         `  ${theme.command('recube channels list nationsglory')}`,
         '',
-        `${theme.title('Shell completion:')}`,
-        `  ${theme.command('recube completion bash')}  ${theme.dim('# then follow the printed install hint')}`,
+        `${theme.title('Complétion shell :')}`,
+        `  ${theme.command('recube completion bash')}  ${theme.dim("# puis suis l'astuce d'installation affichée")}`,
         '',
-        `${theme.dim('Docs: ')}${theme.value('https://recube.gg/developers')}`,
+        `${theme.dim('Docs : ')}${theme.value('https://recube.gg/developers')}`,
       ].join('\n') +
       '\n'
   );
@@ -66,13 +68,13 @@ program
 program
   .command('login')
   .description("S'authentifier auprès de recube.gg (OAuth PKCE)")
-  .option('--scope <scopes>', 'OAuth scopes (space-separated)')
-  .option('-f, --force', 'force re-login même si déjà connecté')
+  .option('--scope <scopes>', 'scopes OAuth (séparés par des espaces)')
+  .option('-f, --force', 'forcer la reconnexion même si déjà connecté')
   .addHelpText(
     'after',
     () =>
       '\n' +
-      theme.title('Examples:') +
+      theme.title('Exemples :') +
       '\n' +
       [
         `  ${theme.command('recube login')}`,
@@ -102,23 +104,23 @@ program
 program
   .command('publish')
   .description('Publier un build de jeu (interactif par défaut)')
-  .option('-t, --tenant <slug>', 'tenant slug (ex: nationsglory)')
-  .option('-c, --channel <name>', 'channel (ex: stable, beta)')
-  .option('-V, --version-tag <semver>', 'version tag (ex: 1.0.1)')
-  .option('-d, --dir <path>', "dossier du bundle (scanné récursivement)")
+  .option('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
+  .option('-c, --channel <name>', 'channel (ex : stable, beta)')
+  .option('-V, --version-tag <semver>', 'tag de version (ex : 1.0.1)')
+  .option('-d, --dir <path>', 'dossier du bundle (scanné récursivement)')
   .option('-n, --note <text>', 'note/changelog du build')
-  .option('-r, --reference <text>', 'reference custom (default: {tenant}-{version}-b{ts})')
+  .option('-r, --reference <text>', 'référence personnalisée (défaut : {tenant}-{version}-b{ts})')
   .option('--concurrency <n>', 'uploads parallèles', (v) => Number.parseInt(v, 10))
-  .option('--init-batch <n>', 'taille des batches initiate (1..500)', (v) => Number.parseInt(v, 10))
-  .option('--default-excludes', 'appliquer les excludes par défaut')
-  .option('--exclude <pattern...>', 'exclure pattern (répétable)')
+  .option('--init-batch <n>', 'taille des lots initiate (1..500)', (v) => Number.parseInt(v, 10))
+  .option('--default-excludes', 'appliquer les exclusions par défaut')
+  .option('--exclude <pattern...>', 'exclure un motif (répétable)')
   .option('--dry-run', "afficher le récap, ne pas appeler l'API")
-  .option('-y, --yes', 'skip la confirmation interactive finale')
-  .option('--runtime-config <file>', 'JSON file with main_class/jvm_args/java_version (override .recube/runtime.json)')
+  .option('-y, --yes', 'sauter la confirmation interactive finale')
+  .option('--runtime-config <file>', 'fichier JSON main_class/jvm_args/java_version (override .recube/runtime.json)')
   .option('--no-recube-core', "désactive l'auto-détection du jar RecubeCore voisin")
   .option(
     '-i, --include <spec...>',
-    'attacher un fichier au bundle ; format <source>:<target> ou <source> (target = basename). Répétable. Ex: -i ./recube-core-0.4.0.jar:recube-core.jar'
+    'attacher un fichier au bundle ; format <source>:<cible> ou <source> (cible = nom de fichier). Répétable. Ex : -i ./recube-core-0.4.0.jar:recube-core.jar'
   )
   .action(async (opts: {
     tenant?: string;
@@ -195,13 +197,13 @@ const draft = program
 draft
   .command('create')
   .description('Créer un draft (devient le draft courant, tracké dans .recube/draft.json)')
-  .requiredOption('-t, --tenant <slug>', 'tenant slug (ex: nationsglory)')
+  .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
   .requiredOption('-c, --channel <name>', 'channel (ex: stable, beta)')
   // `--version-tag` (PAS `--version`) : `--version` entre en collision avec le
   // flag version global de commander (program.version) → imprime juste "0.2.1".
   // Même convention que `recube publish --version-tag`.
-  .requiredOption('-V, --version-tag <semver>', 'version tag du futur build (ex: 1.0.17)')
-  .option('--from <buildId>', 'base build id à seeder (défaut: dernier build live du channel)')
+  .requiredOption('-V, --version-tag <semver>', 'tag de version du futur build (ex : 1.0.17)')
+  .option('--from <buildId>', 'build de base à seeder (défaut : dernier build live du channel)')
   .action(
     async (opts: { tenant?: string; channel?: string; versionTag?: string; from?: string }) => {
       await draftCreateCommand({
@@ -216,7 +218,7 @@ draft
 draft
   .command('list')
   .description('Lister les drafts (tenant/channel du draft courant, ou via flags)')
-  .option('-t, --tenant <slug>', 'tenant slug')
+  .option('-t, --tenant <slug>', 'slug du tenant')
   .option('-c, --channel <name>', 'channel')
   .action(async (opts: { tenant?: string; channel?: string }) => {
     await draftListCommand({ tenant: opts.tenant, channel: opts.channel });
@@ -246,7 +248,7 @@ draft
 
 draft
   .command('diff')
-  .description('Diff du draft courant vs sa base (added/replaced/removed)')
+  .description('Diff du draft courant vs sa base (ajoutés/remplacés/retirés)')
   .action(async () => {
     await draftDiffCommand();
   });
@@ -283,7 +285,7 @@ program
     'after',
     () =>
       '\n' +
-      theme.title('Examples:') +
+      theme.title('Exemples :') +
       '\n' +
       [
         `  ${theme.command('recube completion bash')} ${theme.dim('> ~/.recube-completion.bash')}`,
@@ -309,14 +311,19 @@ process.on('unhandledRejection', (err) => {
 });
 
 // No args (bare `recube`) → onboarding home screen instead of commander's
-// terse usage line. argv = [node, cli.js].
+// terse usage line. argv = [node, cli.js]. printHome is async (lit le cache
+// d'auth local pour le statut) → on await avant de sortir.
 if (process.argv.length <= 2) {
-  printHome();
-  process.exit(0);
+  printHome()
+    .then(() => process.exit(0))
+    .catch((err: Error) => {
+      console.error(theme.error(`recube: ${err.message}`));
+      process.exit(1);
+    });
+} else {
+  program.parseAsync(process.argv).catch((err: Error) => {
+    // eslint-disable-next-line no-console
+    console.error(theme.error(`recube: ${err.message}`));
+    process.exit(1);
+  });
 }
-
-program.parseAsync(process.argv).catch((err: Error) => {
-  // eslint-disable-next-line no-console
-  console.error(theme.error(`recube: ${err.message}`));
-  process.exit(1);
-});

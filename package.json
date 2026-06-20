@@ -1,7 +1,7 @@
 {
   "name": "@nationsglory/cli",
-  "version": "0.2.1",
-  "description": "Recube developer CLI — publish game builds with OAuth auth",
+  "version": "0.3.0",
+  "description": "Recube CLI développeur — publie des builds de jeu avec auth OAuth",
   "type": "module",
   "bin": {
     "recube": "./dist/cli.js"
@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:binary": "node scripts/build-binary.mjs",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -51,6 +52,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.0",
+    "esbuild": "^0.28.0",
     "tsx": "^4.16.0",
     "typescript": "^5.5.0",
     "vitest": "^4.1.7"

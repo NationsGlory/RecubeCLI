@@ -11,8 +11,8 @@ import { theme } from '../ui/theme.js';
 export function completionCommand(shell?: string): void {
   if (!shell) {
     process.stderr.write(
-      `${theme.error('error:')} missing shell argument.\n` +
-        `usage: ${theme.command('recube completion <bash|zsh|fish>')}\n`
+      `${theme.error('erreur :')} argument shell manquant.\n` +
+        `usage : ${theme.command('recube completion <bash|zsh|fish>')}\n`
     );
     process.exitCode = 1;
     return;
@@ -20,8 +20,8 @@ export function completionCommand(shell?: string): void {
   const s = shell.toLowerCase();
   if (!SHELLS.includes(s as Shell)) {
     process.stderr.write(
-      `${theme.error('error:')} unsupported shell "${shell}".\n` +
-        `supported: ${SHELLS.join(', ')}\n`
+      `${theme.error('erreur :')} shell « ${shell} » non supporté.\n` +
+        `supportés : ${SHELLS.join(', ')}\n`
     );
     process.exitCode = 1;
     return;
