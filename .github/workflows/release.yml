@@ -27,6 +27,12 @@ jobs:
   build:
     name: build ${{ matrix.target.name }}
     runs-on: ${{ matrix.target.os }}
+    # Borne le temps d'attente : un runner rare/saturé (ex macos-13 Intel) qui
+    # reste QUEUED bloque sinon le job `release` (needs: build attend que TOUS
+    # les jobs matrix terminent — un job queued à l'infini ne termine jamais).
+    # À 20 min, le job échoue proprement → `needs` se résout → la release peut
+    # publier les binaires des cibles qui ONT réussi (cf. release: continue).
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -88,21 +94,37 @@ jobs:
     name: publish release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    # `always()` : publie même si une cible matrix a échoué/timeout (runner rare)
+    # — on ne bloque pas la release entière sur une seule plateforme starvée.
+    # On exige quand même un tag v* ET qu'au moins UN binaire ait été produit
+    # (vérifié plus bas). Une cible manquante = juste pas dans la release.
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+        # Pas d'échec si certains artifacts manquent (cible buildée KO).
+        continue-on-error: true
 
       - name: Flatten artifacts
+        id: flatten
         run: |
           mkdir -p release
-          find artifacts -type f \( -name 'recube-*' \) -exec cp {} release/ \;
-          ls -la release
+          find artifacts -type f -name 'recube-*' -exec cp {} release/ \; || true
+          echo "Binaires récupérés :"
+          ls -la release || true
+          count=$(find release -type f -name 'recube-*' ! -name '*.sha256' | wc -l | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::Aucun binaire produit — toutes les cibles ont échoué." >&2
+            exit 1
+          fi
+          echo "::notice::$count binaire(s) attaché(s) à la release."
 
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: release/*
-          fail_on_unmatched_files: true
+          # `false` : ne pas échouer si une cible manque (release partielle OK).
+          fail_on_unmatched_files: false
           generate_release_notes: true
