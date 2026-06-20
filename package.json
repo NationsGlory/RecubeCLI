@@ -1,6 +1,6 @@
 {
   "name": "@nationsglory/cli",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Recube CLI développeur — publie des builds de jeu avec auth OAuth",
   "type": "module",
   "bin": {

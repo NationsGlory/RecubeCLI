@@ -8,6 +8,7 @@
 
 import { Command } from 'commander';
 import { VERSION } from './version.js';
+import { isAuthenticated, isPublicInvocation, runAuthGate } from './auth/gate.js';
 import { printHome } from './ui/home.js';
 import { renderBanner } from './ui/banner.js';
 import { theme } from './ui/theme.js';
@@ -323,20 +324,31 @@ process.on('unhandledRejection', (err) => {
   process.exit(1);
 });
 
-// No args (bare `recube`) → onboarding home screen instead of commander's
-// terse usage line. argv = [node, cli.js]. printHome is async (lit le cache
-// d'auth local pour le statut) → on await avant de sortir.
-if (process.argv.length <= 2) {
-  printHome()
-    .then(() => process.exit(0))
-    .catch((err: Error) => {
-      console.error(theme.error(`recube: ${err.message}`));
-      process.exit(1);
-    });
-} else {
-  program.parseAsync(process.argv).catch((err: Error) => {
-    // eslint-disable-next-line no-console
-    console.error(theme.error(`recube: ${err.message}`));
-    process.exit(1);
-  });
+// ── Bootstrap (avec auth-gate à la Claude Code) ──────────────────────────────
+// Avant TOUT rendu (home, help, commande), on gate l'accès : si non
+// authentifié (ni session OAuth ni RECUBE_TOKEN) ET commande hors allowlist
+// (login/completion/--version), on n'affiche PAS le détail des commandes — on
+// invite à se connecter + lance le flow login. RECUBE_TOKEN bypasse le gate.
+async function main(): Promise<void> {
+  const authed = await isAuthenticated();
+  const publicInvocation = isPublicInvocation(process.argv);
+
+  if (!authed && !publicInvocation) {
+    await runAuthGate(); // exit à l'intérieur (login lancé OU instruction headless)
+    return;
+  }
+
+  // Authentifié OU invocation publique → comportement normal.
+  // Bare `recube` (argv ≤ 2) → home onboarding. Sinon → commander.
+  if (process.argv.length <= 2) {
+    await printHome();
+    process.exit(0);
+  }
+  await program.parseAsync(process.argv);
 }
+
+main().catch((err: Error) => {
+  // eslint-disable-next-line no-console
+  console.error(theme.error(`recube: ${err.message}`));
+  process.exit(1);
+});
