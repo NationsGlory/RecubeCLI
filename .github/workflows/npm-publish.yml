@@ -1,8 +1,11 @@
 name: npm publish
 
-# Publishes @recube/cli to npm when a `v*` tag is pushed.
-# Requires the NPM_TOKEN repository secret to be set (an "Automation" token
-# scoped to the @recube org).
+# Publishes the CLI to npm when a `v*` tag is pushed — SECONDARY channel.
+# The PRIMARY install path is curl|sh (standalone binaries from GitHub
+# Releases, cf. release.yml). This workflow is therefore OPTIONAL : it only
+# runs when the `NPM_TOKEN` repository secret exists, and is skipped cleanly
+# otherwise (no ENEEDAUTH failure). It never gates the binary release —
+# the two workflows are independent.
 on:
   push:
     tags:
@@ -15,10 +18,24 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Vérifier la présence du secret NPM_TOKEN
+        id: gate
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::NPM_TOKEN absent — publication npm sautée (canal primaire = curl|sh)."
+          fi
+
       - name: Checkout
+        if: steps.gate.outputs.publish == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node
+        if: steps.gate.outputs.publish == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -26,15 +43,19 @@ jobs:
           cache: 'npm'
 
       - name: Install
+        if: steps.gate.outputs.publish == 'true'
         run: npm ci
 
       - name: Test
+        if: steps.gate.outputs.publish == 'true'
         run: npm test
 
       - name: Build
+        if: steps.gate.outputs.publish == 'true'
         run: npm run build
 
       - name: Publish
+        if: steps.gate.outputs.publish == 'true'
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

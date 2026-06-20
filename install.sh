@@ -59,6 +59,12 @@ case "$arch" in
   *) die "architecture non supportée : $arch" ;;
 esac
 
+# linux-arm64 n'est pas (encore) buildé dans les releases (runner arm64 indispo).
+# macOS arm64 (Apple Silicon) l'est. Message clair plutôt qu'un 404 cryptique.
+if [ "$OS" = "linux" ] && [ "$ARCH" = "arm64" ]; then
+  die "linux-arm64 n'est pas encore distribué en binaire. Installe via npm (Node 20+) : npm install -g @nationsglory/cli — ou lance le CLI depuis les sources."
+fi
+
 ASSET="recube-${OS}-${ARCH}"
 info "Plateforme détectée : ${B}${OS}-${ARCH}${R}"
 

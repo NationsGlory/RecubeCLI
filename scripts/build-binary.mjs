@@ -28,6 +28,7 @@ import { mkdirSync, copyFileSync, existsSync, rmSync, chmodSync } from 'node:fs'
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = path.join(root, 'dist-bundle');
@@ -54,21 +55,23 @@ mkdirSync(outDir, { recursive: true });
 // ── 1. bundle src/cli.ts → single CJS ───────────────────────────────────────
 // CJS (not ESM) because SEA's require()-from-blob is the supported path; ESM in
 // SEA needs extra ceremony. Bundle inlines chalk/commander/clack/ora. Node
-// builtins stay external. `--banner` keeps the shebang harmless inside SEA.
+// builtins stay external.
+//
+// Use esbuild's JS API (not the CLI bin) — portable across runners, no
+// dependency on the bin launcher path or shell quoting. keytar stays external
+// (optional native module, lazy-loaded with a file-store fallback).
 console.log('• bundling with esbuild…');
-run('node', [
-  path.join(root, 'node_modules', 'esbuild', 'bin', 'esbuild'),
-  'src/cli.ts',
-  '--bundle',
-  '--platform=node',
-  '--format=cjs',
-  '--target=node20',
-  `--outfile=${bundlePath}`,
-  // keytar is an optional native module the CLI loads lazily via dynamic
-  // import with a try/catch fallback to the file store — leave it external so
-  // the bundle never hard-fails on a missing native .node.
-  '--external:keytar',
-]);
+const esbuild = await import('esbuild');
+await esbuild.build({
+  entryPoints: [path.join(root, 'src', 'cli.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  target: 'node20',
+  outfile: bundlePath,
+  external: ['keytar'],
+  logLevel: 'info',
+});
 
 // ── 2. SEA blob ─────────────────────────────────────────────────────────────
 console.log('• generating SEA blob…');
@@ -89,9 +92,24 @@ if (platform === 'darwin') {
 }
 
 // ── 4. inject blob via postject ─────────────────────────────────────────────
+// postject is a devDependency (installed by `npm ci`) — we invoke its CLI entry
+// directly with `node`, NOT `npx --yes`. `npx --yes` fetches from the network
+// at build time, which on CI runners is slow/flaky and was the suspected cause
+// of the linux job dying early. Running the local module is deterministic.
 console.log('• injecting blob with postject…');
+const require = createRequire(import.meta.url);
+let postjectBin;
+try {
+  // postject's package.json `bin` → its CLI entry; resolve from node_modules.
+  postjectBin = require.resolve('postject/dist/cli.js');
+} catch {
+  // Fallback: older/newer layout — resolve the package dir then its bin.
+  const pkgJson = require.resolve('postject/package.json');
+  const binRel = require(pkgJson).bin?.postject ?? 'dist/cli.js';
+  postjectBin = path.join(path.dirname(pkgJson), binRel);
+}
 const postjectArgs = [
-  'postject',
+  postjectBin,
   binPath,
   'NODE_SEA_BLOB',
   blobPath,
@@ -101,10 +119,7 @@ const postjectArgs = [
 if (platform === 'darwin') {
   postjectArgs.push('--macho-segment-name', 'NODE_SEA');
 }
-// Use npx so CI doesn't need postject as a hard dep.
-run('npx', ['--yes', ...postjectArgs], {
-  shell: platform === 'win32', // npx.cmd on Windows
-});
+run(process.execPath, postjectArgs);
 
 // ── 5. (macOS) ad-hoc re-sign so Gatekeeper accepts the modified binary ─────
 if (platform === 'darwin') {

@@ -40,7 +40,7 @@ const program = new Command();
 program
   .name('recube')
   .description('Recube CLI développeur — publie des builds de jeu avec auth OAuth')
-  .version('0.2.1', '-v, --version', 'afficher la version')
+  .version('0.3.0', '-v, --version', 'afficher la version')
   // Traduit le flag d'aide intégré de commander (sinon "display help for command").
   .helpOption('-h, --help', "afficher l'aide")
   .addHelpText('beforeAll', () => renderBanner() + '\n')
