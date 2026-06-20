@@ -14,18 +14,22 @@ même lire un draft. Donc le cycle est :
    ```bash
    recube login --scope "launcher:draft launcher:publish openid profile"
    recube draft create --tenant nationsglory --channel beta --version-tag 1.0.18
-   # → affiche l'id du draft (ex 019ee2xx-…)
+   # → un seul draft OUVERT par (tenant, channel)
    ```
-2. **L'humain met l'id + le token en config du/des dépôt(s) de mod** (Settings →
-   Secrets and variables → Actions) :
-   - Secret  `RECUBE_TOKEN`   = `rcs_…` (token de service, lié au tenant)
-   - Variable `RECUBE_DRAFT_ID` = l'id du draft
-   - Variable `RECUBE_TENANT`   = `nationsglory`
-   - Variable `RECUBE_CHANNEL`  = `beta`
-3. **Chaque push de mod ajoute son jar au draft** (workflow ci-dessous).
+2. **L'humain met le token + tenant/channel en config du/des dépôt(s) de mod**
+   (Settings → Secrets and variables → Actions) :
+   - Secret   `RECUBE_TOKEN`  = `rcs_…` (token de service, lié au tenant)
+   - Variable `RECUBE_TENANT`  = `nationsglory`
+   - Variable `RECUBE_CHANNEL` = `beta`
+
+   > **Pas d'ID de draft à gérer** : le CLI cible le draft OUVERT de
+   > (tenant, channel) via l'endpoint `/drafts/current`. L'ID change à chaque
+   > cycle de publication — fixer tenant+channel suffit.
+3. **Chaque push sur `deploy` d'un mod ajoute son jar au draft** (workflow
+   ci-dessous).
 4. **L'humain review + publie** quand tout est prêt :
    ```bash
-   recube draft diff       # vérifie added/replaced/removed
+   recube draft diff       # vérifie ajoutés/remplacés/retirés
    recube draft publish -r "build-1.0.18" -n "changelog…"
    # puis promote (séparé) côté admin pour le go-live
    ```
@@ -49,11 +53,14 @@ installe le CLI (`install.sh`, sans Node) et lance
 
 ```bash
 export RECUBE_TOKEN=rcs_…
-export RECUBE_DRAFT_ID=019ee2xx-…
 export RECUBE_TENANT=nationsglory
 export RECUBE_CHANNEL=beta
 
+# Cible le draft OUVERT de nationsglory/beta (pas d'ID à fournir) :
 recube draft add ./build/libs/my-mod.jar
+
+# Ou un draft précis (rare) :
+recube draft add ./build/libs/my-mod.jar --draft 019ee2xx-… --tenant nationsglory --channel beta
 ```
 
 `RECUBE_TOKEN` court-circuite l'OAuth navigateur (prioritaire sur la session

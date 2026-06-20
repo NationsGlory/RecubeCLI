@@ -32,11 +32,11 @@ inputs:
     description: 'Tenant du draft (ex: nationsglory).'
     required: true
   channel:
-    description: 'Channel du draft (ex: stable, beta).'
+    description: 'Channel du draft (ex: stable, beta). Le CLI cible le draft OUVERT de (tenant,channel) — pas besoin d''ID.'
     required: true
   draft-id:
-    description: "ID du draft ouvert (créé par un humain au préalable)."
-    required: true
+    description: "(Optionnel) ID d'un draft précis. Vide = draft ouvert du couple tenant/channel (recommandé : l'ID change à chaque cycle)."
+    required: false
   token:
     description: 'Token de service recube (rcs_…, scope launcher:draft). À passer via secrets.RECUBE_TOKEN.'
     required: true
@@ -60,6 +60,8 @@ runs:
       shell: bash
       env:
         RECUBE_TOKEN: ${{ inputs.token }}
+        # draft-id vide (cas recommandé) → RECUBE_DRAFT_ID="" → le CLI cible le
+        # draft OUVERT de RECUBE_TENANT/RECUBE_CHANNEL (endpoint /drafts/current).
         RECUBE_DRAFT_ID: ${{ inputs.draft-id }}
         RECUBE_TENANT: ${{ inputs.tenant }}
         RECUBE_CHANNEL: ${{ inputs.channel }}

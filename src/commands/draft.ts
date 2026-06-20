@@ -105,11 +105,21 @@ function refuseServiceTokenForNonAdd(s: AuthenticatedSession, action: string): v
  * accepte un draft fourni explicitement via opts (--draft/--tenant/--channel)
  * ou via env (RECUBE_DRAFT_ID / RECUBE_TENANT / RECUBE_CHANNEL). Sinon, retombe
  * sur le pointeur local `.recube/draft.json` (flux dev habituel).
+ *
+ * Cas CI "current" (option `allowCurrent`, utilisé par `add`) : si tenant +
+ * channel sont fournis SANS draftId explicite, on cible le draft OUVERT de
+ * (tenant,channel) via le pseudo-id `current` → le serveur résout l'endpoint
+ * `/drafts/current/files/...`. But user : le CI ne pose JAMAIS l'ID de draft
+ * (il change à chaque cycle = ingérable) — juste RECUBE_TENANT + RECUBE_CHANNEL
+ * fixes. Le draftId reste prioritaire s'il est fourni (flow `/{id}`).
  */
+export const CURRENT_DRAFT = 'current';
+
 async function resolveDraft(opts?: {
   draftId?: string;
   tenant?: string;
   channel?: string;
+  allowCurrent?: boolean;
 }): Promise<DraftState> {
   const draftId = opts?.draftId ?? process.env.RECUBE_DRAFT_ID?.trim();
   const tenant = opts?.tenant ?? process.env.RECUBE_TENANT?.trim();
@@ -118,6 +128,10 @@ async function resolveDraft(opts?: {
     // Cible explicite (CI) — pas besoin du fichier local.
     return { tenant, channel, draftId };
   }
+  // add-to-current : tenant+channel sans ID → draft ouvert résolu serveur-side.
+  if (opts?.allowCurrent && !draftId && tenant && channel) {
+    return { tenant, channel, draftId: CURRENT_DRAFT };
+  }
   const st = await loadDraftState();
   if (st) return st;
   fail(
@@ -125,7 +139,7 @@ async function resolveDraft(opts?: {
       chalk.dim('Dev   : recube draft create --tenant <t> --channel <c> --version-tag <v>') +
       '\n  ' +
       chalk.dim(
-        'CI    : --draft <id> --tenant <t> --channel <c> (ou env RECUBE_DRAFT_ID/RECUBE_TENANT/RECUBE_CHANNEL)'
+        'CI    : --tenant <t> --channel <c> (cible le draft ouvert ; ou --draft <id> pour un draft précis)'
       )
   );
 }
@@ -136,7 +150,7 @@ async function requireDraft(): Promise<DraftState> {
 }
 
 /** Map an ApiError to a clear, command-specific message. */
-function explainApiError(err: unknown, ctx: 'create' | 'publish' | 'generic'): string {
+function explainApiError(err: unknown, ctx: 'create' | 'publish' | 'add' | 'generic'): string {
   if (!(err instanceof ApiError)) return err instanceof Error ? err.message : String(err);
   let code = '';
   try {
@@ -144,6 +158,14 @@ function explainApiError(err: unknown, ctx: 'create' | 'publish' | 'generic'): s
     code = body.error ?? '';
     if (ctx === 'create' && err.status === 409 && (code === 'draft_already_open' || true)) {
       return `Un draft est déjà ouvert sur ce channel (409 ${code || 'draft_already_open'}). Publie-le ou abandonne-le (recube draft abandon) avant d'en créer un autre.`;
+    }
+    if (ctx === 'add') {
+      if (err.status === 409 || err.status === 404) {
+        return `Aucun draft ouvert sur ce channel (${err.status} ${code || 'no_open_draft'}). Un humain doit d'abord ouvrir un draft (recube draft create / web) ; le CI ne fait qu'ajouter ses jars au draft ouvert.`;
+      }
+      if (err.status === 403 || err.status === 401) {
+        return `Accès refusé (${err.status}). Vérifie RECUBE_TOKEN (token de service rcs_, scope launcher:draft) et que le tenant correspond.`;
+      }
     }
     if (ctx === 'publish') {
       if (err.status === 422) {
@@ -274,13 +296,20 @@ export async function draftAddCommand(
   opts: { path?: string; draftId?: string; tenant?: string; channel?: string }
 ): Promise<void> {
   // `add` est la SEULE commande utilisable par un token de service (rcs_,
-  // add-only). En CI, le draft est ciblé via --draft/--tenant/--channel ou env
-  // (le draft a été créé par un humain au préalable).
+  // add-only). Ciblage : --draft <id> (ou RECUBE_DRAFT_ID) pour un draft précis,
+  // SINON --tenant/--channel (ou env) → le draft OUVERT du couple via
+  // l'endpoint `/drafts/current` (le serveur résout). But user : le CI ne pose
+  // JAMAIS l'ID (il change) — juste RECUBE_TENANT + RECUBE_CHANNEL fixes.
   const st = await resolveDraft({
     draftId: opts.draftId,
     tenant: opts.tenant,
     channel: opts.channel,
+    allowCurrent: true,
   });
+  const targetLabel =
+    st.draftId === CURRENT_DRAFT
+      ? `draft ouvert de ${chalk.bold(`${st.tenant}/${st.channel}`)}`
+      : `draft ${chalk.bold(st.draftId)}`;
   const abs = path.resolve(jar);
   const fstat = await stat(abs).catch(() => null);
   if (!fstat || !fstat.isFile()) fail(`pas un fichier : ${abs}`);
@@ -331,9 +360,9 @@ export async function draftAddCommand(
       exec: false,
     });
     const action = committed.action === 'replace' ? 'remplacé' : 'ajouté';
-    ok(`${virtual} ${action} au draft ${chalk.bold(st.draftId)}.`);
+    ok(`${virtual} ${action} au ${targetLabel}.`);
   } catch (err) {
-    fail(explainApiError(err, 'generic'));
+    fail(explainApiError(err, 'add'));
   }
 }
 

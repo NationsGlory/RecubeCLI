@@ -19,8 +19,9 @@ import { loadConfig } from '../lib/config.js';
 import { loadCredentials, tokensAreExpired } from '../auth/store.js';
 import { RecubeApiClient, ApiError } from '../lib/api.js';
 import { ui, chalk, theme } from '../lib/ui.js';
+import { VERSION } from '../version.js';
 
-const CLI_VERSION = '0.3.0';
+const CLI_VERSION = VERSION;
 const NPM_PACKAGE = '@nationsglory/cli';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';

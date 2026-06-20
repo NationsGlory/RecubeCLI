@@ -7,6 +7,7 @@
  */
 
 import { Command } from 'commander';
+import { VERSION } from './version.js';
 import { printHome } from './ui/home.js';
 import { renderBanner } from './ui/banner.js';
 import { theme } from './ui/theme.js';
@@ -40,7 +41,7 @@ const program = new Command();
 program
   .name('recube')
   .description('Recube CLI développeur — publie des builds de jeu avec auth OAuth')
-  .version('0.3.0', '-v, --version', 'afficher la version')
+  .version(VERSION, '-v, --version', 'afficher la version')
   // Traduit le flag d'aide intégré de commander (sinon "display help for command").
   .helpOption('-h, --help', "afficher l'aide")
   .addHelpText('beforeAll', () => renderBanner() + '\n')

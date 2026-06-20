@@ -61,6 +61,10 @@ mkdirSync(outDir, { recursive: true });
 // dependency on the bin launcher path or shell quoting. keytar stays external
 // (optional native module, lazy-loaded with a file-store fallback).
 console.log('• bundling with esbuild…');
+// Version injectée depuis package.json → remplace `__RECUBE_VERSION__` dans le
+// bundle (cf src/version.ts). Plus de version hardcodée qui drifte.
+const pkgVersion = createRequire(import.meta.url)(path.join(root, 'package.json')).version;
+console.log(`  version injectée : ${pkgVersion}`);
 const esbuild = await import('esbuild');
 await esbuild.build({
   entryPoints: [path.join(root, 'src', 'cli.ts')],
@@ -70,6 +74,9 @@ await esbuild.build({
   target: 'node20',
   outfile: bundlePath,
   external: ['keytar'],
+  define: {
+    __RECUBE_VERSION__: JSON.stringify(pkgVersion),
+  },
   logLevel: 'info',
 });
 
