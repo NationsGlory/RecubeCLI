@@ -19,34 +19,19 @@ import { colorEnabled } from './theme.js';
 
 // Raw cube art (no wordmark — wordmark gets a distinct, lighter color).
 const CUBE_LINES = [
-  '                 WWWWWW',
-  '              &WWWWWWWWWWo',
-  '          *WWWWWWW$  WWWWWWWW*',
-  '       OWWWWWWW#        WMWWWWWW',
-  '    MWWWWWWM$              WMWWWWWWM',
-  '$MWWWWWW                        WWWWWW$',
-  'WWWWWW                            WWWWWW',
-  'WWW*                               WWWWW',
-  'WWW*                            WWWWWWWW',
-  'WWW*       &                &WWWWWWWWWWW',
-  'WWW*       WWWM         $WWWWWWWWWWWWWWW',
-  'WWW*       WWWWWWW    WWWWWWWWWWWWWWWWWW',
-  'WWW*       WWWWWWWWWWWWWWWWWWWWWWWWWWWWW',
-  'WWW*       WWWWWWWWWWWWWWWWWWWWWWWWWWW',
-  'WWW*       WWWWWWWWWWWWWWWWWWWWWWWWWWWWW',
-  'WWW*       WWWWWWWWWWWWWWWWWWWWWo   $WWWW',
-  'WWW*        WWWWWWWWWWWWWWWM        MWWW',
-  'WWW*           WWWWWWWWWW           MWWW',
-  'WWWWWM           aWWWM$           WWWWWW',
-  '$*WWWWWW                       aWWWWWW$',
-  '    $WWWWWWW$              &MMWWWWW$',
-  '       $WWWWWWWM        &WWWWWWW',
-  '          MWWWWWWW*  MWWWWWWWw',
-  '              &WWWWWWWWWW',
-  '                 WWWWWW',
+  '       WWWWWW',
+  '    &WWWWWWWWWW',
+  '  *WWW      WWWW',
+  ' OWW*    WWWWWWWW',
+  ' WWW*   WWWWWWWWWW',
+  ' WWW*   WWWWWW  WW',
+  '  OWW*    WWW   WW',
+  '   *WWW     WWWWW',
+  '    &WWWWWWWWWW',
+  '       WWWWWW',
 ];
 
-const WORDMARK = '                recube';
+const WORDMARK = '       recube';
 
 // Compact cube — a small mark that fits cleanly inside the rounded welcome box
 // (Claude-Code style). 4 lines tall vs the 9-line full art. Single flat color.
