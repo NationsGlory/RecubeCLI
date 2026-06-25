@@ -125,6 +125,28 @@ jobs:
           fi
           echo "::notice::$count binaire(s) attaché(s) à la release."
 
+      # Signature RSA (clé Recube) de chaque binaire → sidecar .sig vérifié par
+      # install.ps1 (pubkey épinglée). Pas d'EV/quota : clé privée en secret CI,
+      # jamais publiée. PKCS#1 v1.5 SHA-256 (openssl) = ce que .NET vérifie.
+      # Skip propre si le secret n'est pas configuré (install.ps1 → checksum seul).
+      - name: Sign binaries (RSA)
+        env:
+          CLI_SIGNING_PRIVATE_KEY: ${{ secrets.CLI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$CLI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::warning::CLI_SIGNING_PRIVATE_KEY absent — binaires NON signés (install.ps1 retombe sur le checksum seul)."
+            exit 0
+          fi
+          umask 077
+          printf '%s' "$CLI_SIGNING_PRIVATE_KEY" > "$RUNNER_TEMP/cli_priv.pem"
+          for bin in release/recube-*; do
+            case "$bin" in *.sha256 | *.sig) continue ;; esac
+            openssl dgst -sha256 -sign "$RUNNER_TEMP/cli_priv.pem" -out "$bin.sig" "$bin"
+            echo "signed $(basename "$bin")"
+          done
+          rm -f "$RUNNER_TEMP/cli_priv.pem"
+          ls -la release/
+
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v2
         with:

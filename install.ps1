@@ -54,19 +54,62 @@ try {
   Die "échec du téléchargement : $BinUrl"
 }
 
-# ── checksum ────────────────────────────────────────────────────────────────
+# ── checksum SHA-256 (OBLIGATOIRE) ───────────────────────────────────────────
+# Le .sha256 est toujours publié par la CI. Son absence = release anormale/
+# altérée → on refuse (fail-closed), plus de skip silencieux.
 try {
   $Expected = (Invoke-WebRequest -Uri $SumUrl -UseBasicParsing).Content.Trim().Split(' ')[0]
-  if ($Expected) {
-    $Actual = (Get-FileHash -Algorithm SHA256 -Path $Tmp).Hash.ToLower()
-    if ($Actual -ne $Expected.ToLower()) {
-      Remove-Item $Tmp -Force -ErrorAction SilentlyContinue
-      Die "checksum invalide (attendu $Expected, obtenu $Actual)."
-    }
-    Ok "Checksum SHA-256 vérifié."
-  }
 } catch {
-  Info "(checksum non publié — vérification sautée)"
+  Remove-Item $Tmp -Force -ErrorAction SilentlyContinue
+  Die "checksum introuvable ($SumUrl) — release incomplète, installation refusée."
+}
+if (-not $Expected) {
+  Remove-Item $Tmp -Force -ErrorAction SilentlyContinue
+  Die "checksum vide — installation refusée."
+}
+$Actual = (Get-FileHash -Algorithm SHA256 -Path $Tmp).Hash.ToLower()
+if ($Actual -ne $Expected.ToLower()) {
+  Remove-Item $Tmp -Force -ErrorAction SilentlyContinue
+  Die "checksum invalide (attendu $Expected, obtenu $Actual) — binaire altéré."
+}
+Ok "Checksum SHA-256 vérifié."
+
+# ── signature RSA (clé Recube épinglée) ──────────────────────────────────────
+# Protège même contre une release GitHub compromise : sans la clé privée (en
+# secret CI, jamais publiée) on ne peut pas re-signer un binaire altéré. La clé
+# PUBLIQUE est épinglée ci-dessous — l'installeur vient de recube.gg (HTTPS,
+# source de confiance), donc la pin est fiable. Signature PKCS#1 v1.5 SHA-256
+# (= `openssl dgst -sha256 -sign`), vérifiée nativement par .NET (compat Windows
+# PowerShell 5.1 + 7). Tant que la CI ne signe pas encore : .sig absent →
+# avertissement (le checksum ci-dessus reste obligatoire).
+$PubKeyXml = '<RSAKeyValue><Modulus>z8YFN+9/fMfOIQ9gVsj5V1tk5B56rPFC3v51fUIQPHXVQvVO0x4CIChTA2d9IcIQEA2XoSqkDNKd7fGgaUwu+HOVAX14Bpn2VtZzhaP69GHI/6yGEr2lmAk4YcKXDu67HWRCiWLeSKASD9nLlXN+qwi6KFJ8aqOd6lO2rOS4aqLnwpCC8azrJSGJHvMSnGf+7zE0/tQdiZGsKG2llGeUflLHDwdxJnN9gWyBHADJLrYoDDetrkXXnXyGHfIl7YLWblHTeOLgyL5dnAGdtb9u8lk302iIAsM9ER9SjUUz3BMXfh+ptdHbqZeHui7qaUWgqcoMDNmB6L5INg0K4m2EfiAlNgaygn/QbD/bzOXKbxr8B+jT1QQKIK4EKVVnzkfEarU84MSg5qMdVMQPpit8TtJRkjLEiSUeYwcsf0r8GDLm5aB0fgHjeoCZduVn802At7DXpEVllgdiJdYf97y9blGoqutrRs4TjHIL56UCFLm6o/OuQOeVU4XKRhBdGsWF</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>'
+$SigUrl = "$Base/$Asset.sig"
+$SigTmp = "$Tmp.sig"
+$sigBytes = $null
+try {
+  Invoke-WebRequest -Uri $SigUrl -OutFile $SigTmp -UseBasicParsing
+  $sigBytes = [System.IO.File]::ReadAllBytes($SigTmp)
+} catch {
+  $sigBytes = $null
+}
+if ($sigBytes -and $sigBytes.Length -gt 0) {
+  $valid = $false
+  try {
+    $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider
+    $rsa.FromXmlString($PubKeyXml)
+    $valid = $rsa.VerifyData([System.IO.File]::ReadAllBytes($Tmp), 'SHA256', $sigBytes)
+  } catch {
+    $valid = $false
+  }
+  Remove-Item $SigTmp -Force -ErrorAction SilentlyContinue
+  if (-not $valid) {
+    Remove-Item $Tmp -Force -ErrorAction SilentlyContinue
+    Die "signature RSA invalide — binaire non authentifié par Recube, installation refusée."
+  }
+  Ok "Signature Recube vérifiée."
+} else {
+  Remove-Item $SigTmp -Force -ErrorAction SilentlyContinue
+  Info "(signature non publiée — vérification sautée ; checksum OK)"
 }
 
 # ── install ─────────────────────────────────────────────────────────────────
