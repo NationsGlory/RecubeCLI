@@ -169,8 +169,14 @@ function explainApiError(err: unknown, ctx: 'create' | 'publish' | 'add' | 'gene
       return body.message ?? err.body;
     }
     if (ctx === 'add') {
-      if (err.status === 409 || err.status === 404) {
-        return `Aucun draft ouvert sur ce channel (${err.status} ${code || 'no_open_draft'}). Un humain doit d'abord ouvrir un draft (recube draft create / web) ; le CI ne fait qu'ajouter ses jars au draft ouvert.`;
+      // Plus de 409 « aucun draft ouvert » : le serveur OUVRE désormais le draft
+      // automatiquement au 1er add (ou résout l'existant). Un 404 = channel/
+      // tenant inconnu ; un 422 = ouverture auto impossible (le serveur explique).
+      if (err.status === 404) {
+        return `Channel ou tenant introuvable (404). Vérifie --tenant / --channel (ou RECUBE_TENANT / RECUBE_CHANNEL).`;
+      }
+      if (err.status === 422) {
+        return `Dépôt refusé (422 ${code || 'unprocessable'}) : ${body.message ?? err.body}`;
       }
       if (err.status === 403 || err.status === 401) {
         return `Accès refusé (${err.status}). Vérifie RECUBE_TOKEN (token de service rcs_, scope launcher:draft) et que le tenant correspond.`;
