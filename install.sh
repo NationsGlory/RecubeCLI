@@ -1,7 +1,9 @@
 #!/bin/sh
 # recube CLI installer (Linux / macOS) — "curl | sh" à la Anthropic.
 #
-#   curl -fsSL https://recube.gg/install.sh | sh
+#   curl -fsSL https://recube.gg/install | sh
+#
+# (URL sans extension : le WAF Cloudflare de recube.gg bloque tout *.sh.)
 #
 # Detects OS/arch, downloads the matching standalone binary from GitHub
 # Releases (no Node required), verifies its SHA-256 against the published
