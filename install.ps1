@@ -57,12 +57,22 @@ try {
 # ── checksum SHA-256 (OBLIGATOIRE) ───────────────────────────────────────────
 # Le .sha256 est toujours publié par la CI. Son absence = release anormale/
 # altérée → on refuse (fail-closed), plus de skip silencieux.
+#
+# On télécharge le .sha256 dans un FICHIER puis on le lit (Get-Content), au lieu
+# de lire `.Content` directement : GitHub sert l'asset en `application/octet-
+# stream`, et sous PowerShell 7 `Invoke-WebRequest .Content` renvoie alors un
+# `byte[]` (pas une string) → `.Trim()` lève « does not contain a method named
+# 'Trim' », ce qui faisait échouer TOUTE installation sur PS7 (incident
+# 2026-06-25). Le passage par fichier est string-safe sur PS 5.1 ET 7.
+$SumTmp = "$Tmp.sha256"
 try {
-  $Expected = (Invoke-WebRequest -Uri $SumUrl -UseBasicParsing).Content.Trim().Split(' ')[0]
+  Invoke-WebRequest -Uri $SumUrl -OutFile $SumTmp -UseBasicParsing
+  $Expected = (((Get-Content -Raw $SumTmp).Trim()) -split '\s+')[0]
 } catch {
-  Remove-Item $Tmp -Force -ErrorAction SilentlyContinue
+  Remove-Item $Tmp, $SumTmp -Force -ErrorAction SilentlyContinue
   Die "checksum introuvable ($SumUrl) — release incomplète, installation refusée."
 }
+Remove-Item $SumTmp -Force -ErrorAction SilentlyContinue
 if (-not $Expected) {
   Remove-Item $Tmp -Force -ErrorAction SilentlyContinue
   Die "checksum vide — installation refusée."
@@ -117,11 +127,18 @@ Move-Item -Force -Path $Tmp -Destination $Dest
 Ok "recube installé dans $Dest"
 
 # ── PATH utilisateur ────────────────────────────────────────────────────────
+# Persiste dans le PATH User (registre) ET met à jour le PATH de CETTE session,
+# pour que `recube` soit reconnu IMMÉDIATEMENT sans rouvrir le terminal.
 $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-if ($UserPath -notlike "*$DestDir*") {
-  [Environment]::SetEnvironmentVariable('Path', "$UserPath;$DestDir", 'User')
-  Info "Ajouté au PATH utilisateur (rouvre ton terminal pour qu'il prenne effet)."
+if ([string]::IsNullOrEmpty($UserPath) -or ($UserPath -notlike "*$DestDir*")) {
+  $newUserPath = if ([string]::IsNullOrEmpty($UserPath)) { $DestDir } else { "$UserPath;$DestDir" }
+  [Environment]::SetEnvironmentVariable('Path', $newUserPath, 'User')
+  Info "Ajouté au PATH utilisateur (persistant)."
 }
+if (($env:Path -split ';') -notcontains $DestDir) {
+  $env:Path = "$env:Path;$DestDir"
+}
+Ok "Prêt : tape 'recube --help' (rouvre le terminal si non reconnu)."
 
 Write-Host ''
 Ok "Prêt. Lance : ${Violet}recube --help${Reset}"
