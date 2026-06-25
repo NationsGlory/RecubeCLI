@@ -89,6 +89,28 @@ export async function revokeToken(opts: {
   }).catch(() => undefined);
 }
 
+/**
+ * Laravel Passport n'inclut PAS de champ `scope` dans la réponse `/oauth/token`
+ * (contrairement au standard OAuth2) → on dérive les scopes du claim `scopes`
+ * du JWT access_token, qui est la source de vérité (toujours présent). Sans ça,
+ * `tokens.scope` reste vide et `recube whoami` affichait « scopes (none) »
+ * malgré un token parfaitement scopé (incident 2026-06-25).
+ */
+export function scopesFromAccessToken(accessToken: string): string {
+  try {
+    const payload = accessToken.split('.')[1];
+    if (!payload) return '';
+    const json = Buffer.from(
+      payload.replace(/-/g, '+').replace(/_/g, '/'),
+      'base64'
+    ).toString('utf8');
+    const claims = JSON.parse(json) as { scopes?: unknown };
+    return Array.isArray(claims.scopes) ? claims.scopes.join(' ') : '';
+  } catch {
+    return '';
+  }
+}
+
 async function postToken(oauthBase: string, body: URLSearchParams): Promise<OAuthTokens> {
   const url = `${oauthBase.replace(/\/+$/, '')}/oauth/token`;
   const res = await fetch(url, {
@@ -122,6 +144,6 @@ async function postToken(oauthBase: string, body: URLSearchParams): Promise<OAut
     refresh_token: parsed.refresh_token ?? null,
     expires_at: Math.floor(Date.now() / 1000) + expiresIn,
     token_type: parsed.token_type ?? 'Bearer',
-    scope: parsed.scope ?? '',
+    scope: parsed.scope || scopesFromAccessToken(parsed.access_token),
   };
 }
