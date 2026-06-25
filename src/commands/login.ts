@@ -19,7 +19,11 @@ import { RecubeApiClient } from '../lib/api.js';
 import { loadConfig } from '../lib/config.js';
 import { ui, theme } from '../lib/ui.js';
 
-const DEFAULT_SCOPE = 'launcher:publish profile:read';
+// Le workflow draft (create/add/rm/diff/publish) est central → le scope par
+// défaut DOIT inclure `launcher:draft`, sinon un simple `recube login` ne
+// permet pas de drafter (incident 2026-06-25 : token sans draft). Override
+// possible via `recube login --scope "..."`.
+const DEFAULT_SCOPE = 'launcher:draft launcher:publish profile:read';
 
 export async function loginCommand(opts: { scope?: string; force?: boolean } = {}): Promise<void> {
   ui.intro('recube login');
