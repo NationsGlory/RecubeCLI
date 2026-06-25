@@ -249,7 +249,9 @@ draft
   // `--version-tag` (PAS `--version`) : `--version` entre en collision avec le
   // flag version global de commander (program.version) → imprime juste "0.2.1".
   // Même convention que `recube publish --version-tag`.
-  .requiredOption('-V, --version-tag <semver>', 'tag de version du futur build (ex : 1.0.17)')
+  // Optionnel : vide → le serveur auto-remplit la version en ligne +1 patch.
+  // Fourni → override (bump minor/major), toujours validé > en ligne côté serveur.
+  .option('-V, --version-tag <semver>', 'override de version (défaut : version en ligne +1 patch)')
   .option('--from <buildId>', 'build de base à seeder (défaut : dernier build live du channel)')
   .action(
     async (opts: { tenant?: string; channel?: string; versionTag?: string; from?: string }) => {

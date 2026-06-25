@@ -159,6 +159,15 @@ function explainApiError(err: unknown, ctx: 'create' | 'publish' | 'add' | 'gene
     if (ctx === 'create' && err.status === 409 && (code === 'draft_already_open' || true)) {
       return `Un draft est déjà ouvert sur ce channel (409 ${code || 'draft_already_open'}). Publie-le ou abandonne-le (recube draft abandon) avant d'en créer un autre.`;
     }
+    if (
+      ctx === 'create' &&
+      err.status === 422 &&
+      (code === 'version_not_greater' || code === 'version_collision')
+    ) {
+      // Override de version refusé (<= en ligne / déjà publiée). Le serveur
+      // explique déjà clairement + donne la version suggérée → on le surface.
+      return body.message ?? err.body;
+    }
     if (ctx === 'add') {
       if (err.status === 409 || err.status === 404) {
         return `Aucun draft ouvert sur ce channel (${err.status} ${code || 'no_open_draft'}). Un humain doit d'abord ouvrir un draft (recube draft create / web) ; le CI ne fait qu'ajouter ses jars au draft ouvert.`;
@@ -205,9 +214,10 @@ export async function draftCreateCommand(opts: {
 }): Promise<void> {
   if (!opts.tenant) fail('--tenant requis');
   if (!opts.channel) fail('--channel requis');
-  if (!opts.version) fail('--version requis (tag, ex: 1.0.17)');
   const tenant = opts.tenant;
   const channel = opts.channel;
+  // version optionnelle : vide → le serveur calcule la version en ligne +1 patch
+  // (autoritaire). Fournie → override, validé > en ligne côté serveur.
   const version = opts.version;
 
   const s = await session();
@@ -217,9 +227,19 @@ export async function draftCreateCommand(opts: {
       version_tag: version,
       base_build_id: opts.from,
     });
-    const state: DraftState = { tenant, channel, draftId: draft.id, version };
+    // Version EFFECTIVE = celle assignée par le serveur (auto current+1 si on
+    // n'a rien envoyé, sinon notre override). On persiste/affiche celle-là.
+    const effectiveVersion = draft.version_tag ?? version;
+    const state: DraftState = {
+      tenant,
+      channel,
+      draftId: draft.id,
+      version: effectiveVersion,
+    };
     await saveDraftState(state);
-    ok(`Draft créé : ${chalk.bold(draft.id)} (${tenant}/${channel} → ${version})`);
+    ok(
+      `Draft créé : ${chalk.bold(draft.id)} (${tenant}/${channel} → ${effectiveVersion ?? '?'})`
+    );
     info(
       `  base: ${opts.from ?? draft.base_build_id ?? '(latest live)'}  status: ${draft.status ?? 'open'}`
     );

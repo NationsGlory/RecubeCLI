@@ -97,7 +97,7 @@ export class RecubeApiClient {
   async createDraft(
     tenant: string,
     channel: string,
-    payload: { version_tag: string; base_build_id?: string }
+    payload: { version_tag?: string; base_build_id?: string }
   ): Promise<Draft> {
     const d = await this.post<{ data?: Draft } & Draft>(this.draftsBase(tenant, channel), payload);
     return (d.data ?? d) as Draft;
