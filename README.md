@@ -15,7 +15,7 @@ irm https://recube.gg/install.ps1 | iex
 
 ```bash
 # Linux / macOS
-curl -fsSL https://recube.gg/install.sh | sh
+curl -fsSL https://recube.gg/install | sh
 ```
 
 Le script détecte ton OS, télécharge le binaire depuis les GitHub Releases,
