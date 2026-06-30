@@ -136,7 +136,7 @@ async function resolveDraft(opts?: {
   if (st) return st;
   fail(
     'Aucun draft courant.\n  ' +
-      chalk.dim('Dev   : recube draft create --tenant <t> --channel <c> --version-tag <v>') +
+      chalk.dim('Dev   : recube draft create --tenant <t> --channel <c>') +
       '\n  ' +
       chalk.dim(
         'CI    : --tenant <t> --channel <c> (cible le draft ouvert ; ou --draft <id> pour un draft précis)'
@@ -147,6 +147,37 @@ async function resolveDraft(opts?: {
 /** Load the current draft pointer or fail with a clear hint. */
 async function requireDraft(): Promise<DraftState> {
   return resolveDraft();
+}
+
+/**
+ * Fetch le draft EN COURS (status `open`) d'un couple tenant/channel via l'API,
+ * sans dépendre du pointeur local `.recube/draft.json`. Le serveur n'autorise
+ * qu'UN draft ouvert par channel → au plus un résultat. Message clair si aucun
+ * draft en cours (au lieu de planter sur "aucun draft courant").
+ */
+async function resolveOpenDraft(
+  s: AuthenticatedSession,
+  tenant: string,
+  channel: string
+): Promise<DraftState> {
+  const drafts = await s.api
+    .listDrafts(tenant, channel)
+    .catch((err: unknown): never => fail(explainApiError(err, 'generic')));
+  const open = drafts.filter((d) => d.status === 'open');
+  if (open.length === 0) {
+    fail(
+      `Aucun draft en cours pour ${chalk.bold(`${tenant}/${channel}`)}.\n  ` +
+        chalk.dim(`Ouvre-en un : recube draft create -t ${tenant} -c ${channel}`)
+    );
+  }
+  const d = open[0];
+  return { tenant, channel, draftId: d.id, version: d.version_tag };
+}
+
+/** Référence auto par défaut pour publish (parité avec `recube publish`). */
+function defaultDraftReference(st: DraftState): string {
+  const ts = Math.floor(Date.now() / 1000);
+  return `${st.tenant}-${st.channel}-${st.version ?? 'draft'}-b${ts}`;
 }
 
 /** Map an ApiError to a clear, command-specific message. */
@@ -229,6 +260,8 @@ export async function draftCreateCommand(opts: {
   const s = await session();
   refuseServiceTokenForNonAdd(s, 'create');
   try {
+    // version_tag envoyé seulement si override fourni ; sinon omis → le serveur
+    // auto-incrémente (next semver du channel).
     const draft = await s.api.createDraft(tenant, channel, {
       version_tag: version,
       base_build_id: opts.from,
@@ -440,26 +473,50 @@ export async function draftDiffCommand(): Promise<void> {
 }
 
 export async function draftPublishCommand(opts: {
+  tenant?: string;
+  channel?: string;
   reference?: string;
   note?: string;
 }): Promise<void> {
-  const st = await requireDraft();
-  if (!opts.reference) fail('--reference requis (≤ 96 caractères)');
-  if (opts.reference.length > 96) fail('--reference trop long (max 96)');
-  if (!opts.note) fail('--note requis (6 à 2000 caractères)');
-  if (opts.note.length < 6 || opts.note.length > 2000) {
+  const s = await session();
+  refuseServiceTokenForNonAdd(s, 'publish');
+
+  // Résolution du draft à publier :
+  //  - tenant + channel fournis → on fetch le draft EN COURS du couple (serveur),
+  //    plus besoin du pointeur local ni de connaître l'ID du draft.
+  //  - aucun des deux → pointeur local .recube/draft.json (flux dev habituel).
+  let st: DraftState;
+  if (opts.tenant && opts.channel) {
+    st = await resolveOpenDraft(s, opts.tenant, opts.channel);
+  } else if (opts.tenant || opts.channel) {
+    fail('Précise --tenant ET --channel ensemble (ou aucun des deux pour cibler le draft courant local).');
+  } else {
+    st = await requireDraft();
+  }
+
+  // reference : auto-défaut (parité avec `recube publish`) si absente.
+  const reference = opts.reference ?? defaultDraftReference(st);
+  if (reference.length > 96) fail('reference trop longue (max 96 caractères)');
+
+  // note : générée par défaut si absente (le changelog explicite reste
+  // recommandé via -n, on prévient quand on retombe sur le défaut).
+  let note = opts.note;
+  if (!note) {
+    note = `Publication du build ${st.version ?? '(auto)'} sur ${st.channel}`;
+    info(chalk.yellow('  note par défaut générée — précise -n "<changelog>" pour un descriptif explicite.'));
+  }
+  if (note.length < 6 || note.length > 2000) {
     fail('--note doit faire entre 6 et 2000 caractères');
   }
 
-  const s = await session();
-  refuseServiceTokenForNonAdd(s, 'publish');
   try {
     const res = await s.api.draftPublish(st.tenant, st.channel, st.draftId, {
-      reference: opts.reference,
-      note: opts.note,
+      reference,
+      note,
     });
     const b = res.finalized_build ?? {};
-    ok(`Draft publié → build ${chalk.bold(b.build_id ?? '?')}`);
+    ok(`Draft publié → build ${chalk.bold(b.build_id ?? '?')}  (${st.tenant}/${st.channel})`);
+    info(`  reference      : ${reference}`);
     info(`  status         : ${res.status ?? 'published'}`);
     info(`  manifest_sha256: ${b.manifest_sha256 ?? '-'}`);
     info(`  files_count    : ${b.files_count ?? '-'}`);
@@ -469,9 +526,13 @@ export async function draftPublishCommand(opts: {
         '  Le PROMOTE est séparé — le build est publié mais PAS live. Promote via l\'admin/API quand prêt.'
       )
     );
-    // Draft is consumed on successful publish.
-    await clearDraftState();
-    info(chalk.dim('  draft courant local effacé.'));
+    // Efface le pointeur local UNIQUEMENT s'il visait CE draft (un publish ciblé
+    // par --tenant/--channel ne doit pas effacer un autre draft courant local).
+    const local = await loadDraftState();
+    if (local?.draftId === st.draftId) {
+      await clearDraftState();
+      info(chalk.dim('  draft courant local effacé.'));
+    }
   } catch (err) {
     fail(explainApiError(err, 'publish'));
   }

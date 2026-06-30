@@ -13,8 +13,8 @@ même lire un draft. Donc le cycle est :
 1. **Un humain ouvre le draft** (review-able sur le web, ou en CLI) :
    ```bash
    recube login --scope "launcher:draft launcher:publish openid profile"
-   recube draft create --tenant nationsglory --channel beta --version-tag 1.0.18
-   # → un seul draft OUVERT par (tenant, channel)
+   recube draft create --tenant nationsglory --channel beta
+   # → un seul draft OUVERT par (tenant, channel) ; la version s'auto-incrémente
    ```
 2. **L'humain met le token + tenant/channel en config du/des dépôt(s) de mod**
    (Settings → Secrets and variables → Actions) :
@@ -30,8 +30,9 @@ même lire un draft. Donc le cycle est :
 4. **L'humain review + publie** quand tout est prêt :
    ```bash
    recube draft diff       # vérifie ajoutés/remplacés/retirés
-   recube draft publish -r "build-1.0.18" -n "changelog…"
-   # puis promote (séparé) côté admin pour le go-live
+   recube draft publish -t nationsglory -c beta -n "changelog…"
+   # -t/-c → fetch le draft en cours (pas besoin du draft.json local) ;
+   # -r (reference) auto si omis ; puis promote (séparé) côté admin pour le go-live
    ```
 
 > Le CI ne franchit jamais l'étape review : `create`/`publish`/`promote`

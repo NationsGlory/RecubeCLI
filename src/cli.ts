@@ -46,6 +46,10 @@ program
   .version(VERSION, '-v, --version', 'afficher la version')
   // Traduit le flag d'aide intégré de commander (sinon "display help for command").
   .helpOption('-h, --help', "afficher l'aide")
+  // Banner ISO : `beforeAll` est hérité par TOUTES les sous-commandes (commander
+  // accumule les beforeAll des ancêtres) → un seul addHelpText sur le program
+  // suffit pour que `recube`, `recube draft --help`, `recube draft publish
+  // --help`, etc. affichent le même header.
   .addHelpText('beforeAll', () => renderBanner() + '\n')
   .addHelpText(
     'after',
@@ -57,7 +61,7 @@ program
         `  ${theme.command('recube login --scope "launcher:publish launcher:draft profile:read"')}`,
         `  ${theme.command('recube doctor')}`,
         `  ${theme.command('recube publish -t nationsglory -c stable -V 1.0.0 -d ./build')}`,
-        `  ${theme.command('recube draft create -t nationsglory -c beta -V 1.0.1')}`,
+        `  ${theme.command('recube draft create -t nationsglory -c beta')}`,
         `  ${theme.command('recube channels list nationsglory')}`,
         '',
         `${theme.title('Complétion shell :')}`,
@@ -248,7 +252,6 @@ draft
   .requiredOption('-c, --channel <name>', 'channel (ex: stable, beta)')
   // `--version-tag` (PAS `--version`) : `--version` entre en collision avec le
   // flag version global de commander (program.version) → imprime juste "0.2.1".
-  // Même convention que `recube publish --version-tag`.
   // Optionnel : vide → le serveur auto-remplit la version en ligne +1 patch.
   // Fourni → override (bump minor/major), toujours validé > en ligne côté serveur.
   .option('-V, --version-tag <semver>', 'override de version (défaut : version en ligne +1 patch)')
@@ -316,11 +319,18 @@ draft
 
 draft
   .command('publish')
-  .description('Finaliser le draft courant en build immuable (scope launcher:publish ; PAS promote)')
-  .requiredOption('-r, --reference <ref>', 'reference du build (≤ 96 caractères)')
-  .requiredOption('-n, --note <note>', 'note/changelog (6 à 2000 caractères)')
-  .action(async (opts: { reference?: string; note?: string }) => {
-    await draftPublishCommand({ reference: opts.reference, note: opts.note });
+  .description('Finaliser le draft EN COURS en build immuable (scope launcher:publish ; PAS promote)')
+  .option('-t, --tenant <slug>', 'tenant du draft à publier — fetch le draft en cours (défaut : draft courant local)')
+  .option('-c, --channel <name>', 'channel du draft à publier — fetch le draft en cours (défaut : draft courant local)')
+  .option('-r, --reference <ref>', 'reference du build (≤ 96 car ; défaut auto : {tenant}-{channel}-{version}-b{ts})')
+  .option('-n, --note <note>', 'note/changelog (6 à 2000 car ; défaut généré si absent)')
+  .action(async (opts: { tenant?: string; channel?: string; reference?: string; note?: string }) => {
+    await draftPublishCommand({
+      tenant: opts.tenant,
+      channel: opts.channel,
+      reference: opts.reference,
+      note: opts.note,
+    });
   });
 
 draft

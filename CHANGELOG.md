@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0 — 2026-06-30
+
+CLI ergonomics pass on the draft flow + help consistency.
+
+### Changes
+
+- **`draft create` `-V, --version-tag` is now optional** : the version
+  auto-increments server-side (next patch of the channel) by default, so you no
+  longer need to pass it. Provide `-V` only to override for a minor/major bump
+  (validated `>` the online version). The created draft returns the effective
+  assigned version.
+- **`draft publish` can resolve the open draft from `--tenant`/`--channel`** :
+  pass `-t <tenant> -c <channel>` to fetch the in-progress (status `open`) draft
+  of that pair server-side — no local `.recube/draft.json` nor draft id needed.
+  Clear message when no draft is open. Without `-t`/`-c`, it falls back to the
+  local current draft as before.
+- **`draft publish` flags `-r`/`-n` are now optional** : `--reference`
+  auto-defaults to `{tenant}-{channel}-{version}-b{ts}` (parity with `publish`),
+  `--note` is generated when omitted (a warning nudges toward an explicit
+  changelog via `-n`).
+- **Help header is ISO across all commands** : the brand banner now shows on
+  every subcommand `--help`, not only the top-level, via the root program's
+  inherited `beforeAll` help text.
+
 ## 0.2.1 — 2026-06-11
 
 Hotfix release driven by the 1.0.5 NationsGlory anti-cheat republish operation —
