@@ -6,11 +6,10 @@
  * src/commands/* so they can be tested without touching the CLI surface.
  */
 
-import { Command } from 'commander';
+import { Command, Help } from 'commander';
 import { VERSION } from './version.js';
 import { isAuthenticated, isPublicInvocation, runAuthGate } from './auth/gate.js';
-import { printHome } from './ui/home.js';
-import { renderBanner } from './ui/banner.js';
+import { printHome, welcomeBox, buildAuthLine } from './ui/home.js';
 import { theme } from './ui/theme.js';
 import { completionCommand } from './commands/completion.js';
 import { loginCommand } from './commands/login.js';
@@ -37,59 +36,131 @@ import {
 
 const program = new Command();
 
-// Rich help: brand banner on top + themed Examples section at the bottom
-// (commander 12 has no per-element help styling hooks, so the visual identity
-// comes from the banner header and the colored addHelpText blocks).
+const DOC_URL = 'https://recube.gg/developers';
+
+// Statut d'auth affiché dans le header des `--help` (même box que `recube` nu).
+// Pré-calculé dans main() avant parseAsync car le help de commander est sync
+// alors que la lecture du user est async.
+let helpAuthLine: string | undefined;
+
+// Exemples par commande, rendus dans le help custom (style page d'accueil).
+const EXAMPLES: Record<string, string[]> = {
+  recube: [
+    'recube login --scope "launcher:publish launcher:draft profile:read"',
+    'recube doctor',
+    'recube publish -t nationsglory -c stable -V 1.0.0 -d ./build',
+    'recube draft create -t nationsglory -c beta',
+    'recube channels list nationsglory',
+  ],
+  'recube login': [
+    'recube login',
+    'recube login --scope "launcher:publish launcher:draft profile:read"',
+    'recube login --force',
+  ],
+  'recube completion': [
+    'recube completion bash > ~/.recube-completion.bash',
+    'recube completion zsh  > "${fpath[1]}/_recube"',
+    'recube completion fish > ~/.config/fish/completions/recube.fish',
+  ],
+};
+
+/** Nom complet d'une commande (chemin depuis la racine) : "recube draft create". */
+function fullName(cmd: Command): string {
+  const parts: string[] = [];
+  let c: Command | null = cmd;
+  while (c) {
+    parts.unshift(c.name());
+    c = c.parent;
+  }
+
+  return parts.join(' ');
+}
+
+/**
+ * Help custom — même langage visuel que l'écran d'accueil (`recube` nu) : box de
+ * marque en tête, sections en listes à puces violet (Usage / Arguments /
+ * Commandes / Options / Exemples), footer Docs. Appliqué à TOUTES les commandes
+ * via applyHelpConfig (commander n'hérite pas configureHelp aux sous-commandes).
+ */
+function formatHelp(cmd: Command, helper: Help): string {
+  const t = theme;
+  const out: string[] = ['', welcomeBox(helpAuthLine), ''];
+
+  out.push(`  ${t.title('Usage')}`, `     ${t.command(helper.commandUsage(cmd))}`, '');
+
+  const desc = helper.commandDescription(cmd);
+  if (desc) {
+    out.push(`  ${t.dim(desc)}`, '');
+  }
+
+  const section = (label: string, items: Array<{ term: string; desc: string }>): void => {
+    if (!items.length) {
+      return;
+    }
+    out.push(`  ${t.title(label)}`, '');
+    for (const it of items) {
+      out.push(`  ${t.bullet()} ${t.command(it.term)}`);
+      if (it.desc) {
+        out.push(`     ${t.dim(it.desc)}`);
+      }
+    }
+    out.push('');
+  };
+
+  section(
+    'Arguments',
+    helper.visibleArguments(cmd).map((a) => ({
+      term: helper.argumentTerm(a),
+      desc: helper.argumentDescription(a),
+    }))
+  );
+  section(
+    'Commandes',
+    helper.visibleCommands(cmd).map((s) => ({
+      term: helper.subcommandTerm(s),
+      desc: helper.subcommandDescription(s),
+    }))
+  );
+  section(
+    'Options',
+    helper.visibleOptions(cmd).map((o) => ({
+      term: helper.optionTerm(o),
+      desc: helper.optionDescription(o),
+    }))
+  );
+
+  const ex = EXAMPLES[fullName(cmd)];
+  if (ex?.length) {
+    out.push(`  ${t.title('Exemples')}`, '');
+    for (const e of ex) {
+      out.push(`  ${t.bullet()} ${t.command(e)}`);
+    }
+    out.push('');
+  }
+
+  out.push(`  ${t.arrow()} ${t.dim('Docs :')} ${t.value(DOC_URL)}`, '');
+
+  return out.join('\n');
+}
+
+/** Applique le help custom à une commande ET toutes ses sous-commandes. */
+function applyHelpConfig(cmd: Command): void {
+  cmd.configureHelp({ formatHelp });
+  cmd.commands.forEach((sub) => applyHelpConfig(sub));
+}
+
 program
   .name('recube')
   .description('Recube CLI développeur — publie des builds de jeu avec auth OAuth')
   .version(VERSION, '-v, --version', 'afficher la version')
   // Traduit le flag d'aide intégré de commander (sinon "display help for command").
-  .helpOption('-h, --help', "afficher l'aide")
-  // Banner ISO : `beforeAll` est hérité par TOUTES les sous-commandes (commander
-  // accumule les beforeAll des ancêtres) → un seul addHelpText sur le program
-  // suffit pour que `recube`, `recube draft --help`, `recube draft publish
-  // --help`, etc. affichent le même header.
-  .addHelpText('beforeAll', () => renderBanner() + '\n')
-  .addHelpText(
-    'after',
-    () =>
-      '\n' +
-      theme.title('Exemples :') +
-      '\n' +
-      [
-        `  ${theme.command('recube login --scope "launcher:publish launcher:draft profile:read"')}`,
-        `  ${theme.command('recube doctor')}`,
-        `  ${theme.command('recube publish -t nationsglory -c stable -V 1.0.0 -d ./build')}`,
-        `  ${theme.command('recube draft create -t nationsglory -c beta')}`,
-        `  ${theme.command('recube channels list nationsglory')}`,
-        '',
-        `${theme.title('Complétion shell :')}`,
-        `  ${theme.command('recube completion bash')}  ${theme.dim("# puis suis l'astuce d'installation affichée")}`,
-        '',
-        `${theme.dim('Docs : ')}${theme.value('https://recube.gg/developers')}`,
-      ].join('\n') +
-      '\n'
-  );
+  .helpOption('-h, --help', "afficher l'aide");
 
 program
   .command('login')
   .description("S'authentifier auprès de recube.gg (OAuth PKCE)")
   .option('--scope <scopes>', 'scopes OAuth (séparés par des espaces)')
   .option('-f, --force', 'forcer la reconnexion même si déjà connecté')
-  .addHelpText(
-    'after',
-    () =>
-      '\n' +
-      theme.title('Exemples :') +
-      '\n' +
-      [
-        `  ${theme.command('recube login')}`,
-        `  ${theme.command('recube login --scope "launcher:publish launcher:draft profile:read"')}`,
-        `  ${theme.command('recube login --force')}`,
-      ].join('\n') +
-      '\n'
-  )
   .action(async (opts: { scope?: string; force?: boolean }) => {
     await loginCommand(opts);
   });
@@ -352,22 +423,15 @@ program
 program
   .command('completion <shell>')
   .description('Imprimer le script de complétion shell (bash|zsh|fish) + instructions')
-  .addHelpText(
-    'after',
-    () =>
-      '\n' +
-      theme.title('Exemples :') +
-      '\n' +
-      [
-        `  ${theme.command('recube completion bash')} ${theme.dim('> ~/.recube-completion.bash')}`,
-        `  ${theme.command('recube completion zsh')}  ${theme.dim('> "${fpath[1]}/_recube"')}`,
-        `  ${theme.command('recube completion fish')} ${theme.dim('> ~/.config/fish/completions/recube.fish')}`,
-      ].join('\n') +
-      '\n'
-  )
   .action((shell: string) => {
     completionCommand(shell);
   });
+
+// Traduit la commande d'aide auto-générée (sinon "display help for command").
+program.helpCommand('help [command]', "afficher l'aide d'une commande");
+
+// Applique le help custom (box + listes à puces) à TOUTES les commandes.
+applyHelpConfig(program);
 
 program
   .configureOutput({
@@ -400,6 +464,11 @@ async function main(): Promise<void> {
   if (process.argv.length <= 2) {
     await printHome();
     process.exit(0);
+  }
+  // Header des --help = box d'accueil avec statut d'auth. La ligne d'auth est
+  // async (cache local) → on la pré-calcule ici (le help de commander est sync).
+  if (process.argv.some((a) => a === '-h' || a === '--help' || a === 'help')) {
+    helpAuthLine = await buildAuthLine();
   }
   await program.parseAsync(process.argv);
 }

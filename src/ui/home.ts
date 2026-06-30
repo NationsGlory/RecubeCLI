@@ -20,15 +20,15 @@ const DOC_URL = 'https://recube.gg/developers';
  * Boîte d'accueil arrondie : cube compact à gauche, marque + tagline + statut
  * d'auth à droite. Style « ✻ Welcome to Claude Code » adapté recube.
  */
-function welcomeBox(authLine: string): string {
+export function welcomeBox(authLine?: string): string {
   const t = theme;
   const cube = compactCubeLines();
   // Texte à droite du cube — aligné sur la hauteur du cube (3 lignes) + marque.
   const right = [
     `${t.brand('✦')} ${t.title('recube')} ${t.dim('CLI développeur')}`,
     t.dim('Publie des builds de jeu — auth OAuth, drafts, channels.'),
-    authLine,
   ];
+  if (authLine) right.push(authLine);
   // Compose côte à côte : cube (col gauche) + texte (col droite), padding entre.
   const rows: string[] = [];
   const cubeH = cube.length;
@@ -45,19 +45,25 @@ function welcomeBox(authLine: string): string {
   return box(rows);
 }
 
-export async function printHome(): Promise<void> {
+/**
+ * Ligne de statut d'auth (cache local, jamais réseau). Partagée entre l'écran
+ * d'accueil et le header des `--help` (via cli.ts).
+ */
+export async function buildAuthLine(): Promise<string> {
   const t = theme;
-
-  // Statut d'auth — lecture du cache local (jamais bloquant, pas de réseau).
-  let authLine: string;
   try {
     const user = await getStoredUser();
-    authLine = user
+    return user
       ? `${t.success('●')} ${t.dim('connecté :')} ${t.accent('@' + (user.handle ?? user.id))}`
       : `${t.dim('○ non connecté —')} ${t.command('recube login')}`;
   } catch {
-    authLine = `${t.dim('○ non connecté —')} ${t.command('recube login')}`;
+    return `${t.dim('○ non connecté —')} ${t.command('recube login')}`;
   }
+}
+
+export async function printHome(): Promise<void> {
+  const t = theme;
+  const authLine = await buildAuthLine();
 
   const lines: string[] = [
     '',
@@ -75,9 +81,9 @@ export async function printHome(): Promise<void> {
     `     ${t.command('recube publish -t nationsglory -c stable -V 1.0.0 -d ./build')}`,
     '',
     `  ${t.bullet()} ${t.bold('Itérer avec les drafts mutables')}`,
-    `     ${t.command('recube draft create -t nationsglory -c beta -V 1.0.1')}`,
+    `     ${t.command('recube draft create -t nationsglory -c beta')}`,
     `     ${t.command('recube draft add ./mods/my-mod.jar')}`,
-    `     ${t.command('recube draft publish -r ma-ref -n "changelog"')}`,
+    `     ${t.command('recube draft publish -t nationsglory -c beta -n "changelog"')}`,
     '',
     box([
       `${t.brand('Astuce')} ${t.dim('·')} ${t.dim('prépare une build à plusieurs avec')} ${t.command('recube draft')} ${t.dim(': add/rm/diff,')}`,

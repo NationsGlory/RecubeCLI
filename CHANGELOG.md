@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1 — 2026-06-30
+
+### Changes
+
+- **Help redesign — same visual language everywhere** : every `--help` page now
+  renders like the `recube` home screen — a brand box header (logo + tagline +
+  auth status), bulleted sections in brand violet (Usage / Arguments /
+  Commandes / Options / Exemples), and a Docs footer. Replaces commander's plain
+  layout, applied to every command and subcommand via a custom `formatHelp`.
+  Previously the subcommand help showed the raw ASCII banner (or no header on
+  older installs); now it matches the home screen consistently.
+
 ## 0.4.0 — 2026-06-30
 
 CLI ergonomics pass on the draft flow + help consistency.
