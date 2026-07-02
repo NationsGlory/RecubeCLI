@@ -165,7 +165,7 @@ export class RecubeApiClient {
     tenant: string,
     channel: string,
     draftId: string,
-    payload: { reference: string; note: string }
+    payload: { reference: string; note: string; promote?: boolean }
   ): Promise<DraftPublishResult> {
     const d = await this.post<{ data?: DraftPublishResult } & DraftPublishResult>(
       `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}/publish`,

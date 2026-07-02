@@ -49,6 +49,10 @@ function info(msg: string): void {
   console.log(msg);
 }
 
+function warn(msg: string): void {
+  console.log(chalk.yellow('⚠ ') + msg);
+}
+
 async function session(): Promise<AuthenticatedSession> {
   let s: AuthenticatedSession;
   try {
@@ -477,6 +481,7 @@ export async function draftPublishCommand(opts: {
   channel?: string;
   reference?: string;
   note?: string;
+  promote?: boolean;
 }): Promise<void> {
   const s = await session();
   refuseServiceTokenForNonAdd(s, 'publish');
@@ -510,10 +515,12 @@ export async function draftPublishCommand(opts: {
   }
 
   try {
-    const res = await s.api.draftPublish(st.tenant, st.channel, st.draftId, {
-      reference,
-      note,
-    });
+    // Le body ne porte `promote` QUE si --promote est passé : sans le flag, le
+    // corps reste identique à l'existant (build publié → dormant).
+    const payload: { reference: string; note: string; promote?: boolean } = { reference, note };
+    if (opts.promote) payload.promote = true;
+
+    const res = await s.api.draftPublish(st.tenant, st.channel, st.draftId, payload);
     const b = res.finalized_build ?? {};
     ok(`Draft publié → build ${chalk.bold(b.build_id ?? '?')}  (${st.tenant}/${st.channel})`);
     info(`  reference      : ${reference}`);
@@ -521,11 +528,43 @@ export async function draftPublishCommand(opts: {
     info(`  manifest_sha256: ${b.manifest_sha256 ?? '-'}`);
     info(`  files_count    : ${b.files_count ?? '-'}`);
     info(`  promu (live)   : ${res.promoted ? 'OUI' : 'NON'}`);
-    info(
-      chalk.dim(
-        '  Le PROMOTE est séparé — le build est publié mais PAS live. Promote via l\'admin/API quand prêt.'
-      )
-    );
+
+    if (opts.promote) {
+      // Promote demandé : le publish réussit TOUJOURS (201), mais la mise en
+      // ligne peut être refusée (scope/permission) ou échouer côté serveur.
+      if (res.promoted) {
+        ok('Build publié ET mis en ligne (promu).');
+      } else if (res.promote_skipped) {
+        const reason =
+          res.promote_skipped === 'missing_scope'
+            ? 'scope de promotion manquant'
+            : res.promote_skipped === 'missing_permission'
+              ? 'permission de promotion manquante'
+              : `promotion refusée (${res.promote_skipped})`;
+        warn(
+          `Build publié mais NON mis en ligne : ${reason}.\n  ` +
+            chalk.dim(
+              'Utilise le panel admin ou un token avec le scope launcher:promote pour le go-live.'
+            )
+        );
+      } else if (res.promote_error) {
+        warn(
+          `Build publié mais la mise en ligne a échoué : ${res.promote_message ?? res.promote_error}.\n  ` +
+            chalk.dim('Le build est publié (dormant) — retente le promote via le panel admin.')
+        );
+      } else {
+        warn(
+          'Build publié mais NON mis en ligne (raison non précisée par le serveur).\n  ' +
+            chalk.dim('Promote via le panel admin quand prêt.')
+        );
+      }
+    } else {
+      info(
+        chalk.dim(
+          '  Le PROMOTE est séparé — le build est publié mais PAS live. Promote via l\'admin/API quand prêt.'
+        )
+      );
+    }
     // Efface le pointeur local UNIQUEMENT s'il visait CE draft (un publish ciblé
     // par --tenant/--channel ne doit pas effacer un autre draft courant local).
     const local = await loadDraftState();

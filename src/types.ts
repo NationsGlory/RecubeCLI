@@ -171,6 +171,17 @@ export interface DraftPublishResult {
     files_count?: number;
     [k: string]: unknown;
   };
+  /** true = build mis en ligne (promote OK) ; false/absent = build dormant. */
   promoted?: boolean;
+  /**
+   * Promote demandé (--promote) mais refusé AVANT exécution : le publish a
+   * réussi quand même (201). `missing_scope` = token sans launcher:promote ;
+   * `missing_permission` = user sans droit de promotion.
+   */
+  promote_skipped?: 'missing_scope' | 'missing_permission' | string;
+  /** Promote demandé mais échoué à l'exécution (code d'erreur serveur). */
+  promote_error?: string;
+  /** Message humain associé à `promote_error`. */
+  promote_message?: string;
   [k: string]: unknown;
 }

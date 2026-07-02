@@ -395,12 +395,14 @@ draft
   .option('-c, --channel <name>', 'channel du draft à publier — fetch le draft en cours (défaut : draft courant local)')
   .option('-r, --reference <ref>', 'reference du build (≤ 96 car ; défaut auto : {tenant}-{channel}-{version}-b{ts})')
   .option('-n, --note <note>', 'note/changelog (6 à 2000 car ; défaut généré si absent)')
-  .action(async (opts: { tenant?: string; channel?: string; reference?: string; note?: string }) => {
+  .option('-p, --promote', 'met le build en ligne immédiatement après publication (nécessite la permission de promotion)')
+  .action(async (opts: { tenant?: string; channel?: string; reference?: string; note?: string; promote?: boolean }) => {
     await draftPublishCommand({
       tenant: opts.tenant,
       channel: opts.channel,
       reference: opts.reference,
       note: opts.note,
+      promote: opts.promote,
     });
   });
 
