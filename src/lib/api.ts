@@ -15,12 +15,17 @@
  */
 
 import type {
+  BranchMergeResult,
+  BranchOverlayInitiateSlot,
+  BranchOverlayPutResult,
   Channel,
   Draft,
   DraftDiff,
   DraftInitiateSlot,
   DraftPublishResult,
   Game,
+  PersonalBranch,
+  PromoteResult,
   UserProfile,
   Version,
 } from '../types.js';
@@ -288,6 +293,112 @@ export class RecubeApiClient {
     const inner = (d?.data ?? d ?? null) as Record<string, unknown> | null;
     if (!inner || Object.keys(inner).length === 0) return null;
     return inner as { version?: string; sha256?: string; url?: string; [k: string]: unknown };
+  }
+
+  // ── Promote (dormant build → live) ────────────────────────────────
+  /**
+   * Met en ligne un build DÉJÀ publié (dormant → live) :
+   *   POST /launcher/{tenant}/{channel}/promote/{buildId}   (body vide)
+   * Endpoint séparé du publish — perm-gated (scope launcher:promote +
+   * perm launcher.{tenant}.promote). Un token publish-only reçoit 403 ici.
+   */
+  async promote(tenant: string, channel: string, buildId: string): Promise<PromoteResult> {
+    const d = await this.post<{ data?: PromoteResult } & PromoteResult>(
+      `${this.launcherBase(tenant, channel)}/promote/${encodeURIComponent(buildId)}`,
+      {}
+    );
+    return (d.data ?? d) as PromoteResult;
+  }
+
+  // ── Personal branches (dev-{handle}, base ⊕ overlay) ──────────────
+  // Base path : /launcher/{tenant}/branches. Server never accepts a service
+  // token here (mutating a live auto-recomposed channel is a deliberate
+  // human action) — callers should refuse RECUBE_TOKEN sessions before use.
+  private branchesBase(tenant: string): string {
+    return `/launcher/${encodeURIComponent(tenant)}/branches`;
+  }
+
+  /**
+   * Provision (idempotent) the caller's personal branch. Body : { base? }
+   * (server default : `stable`). The response body never carries a
+   * `created` flag — the ONLY signal is the HTTP status (201 = just
+   * created, 200 = already existed) — so this reads `res.status` directly
+   * instead of going through the generic `post<T>()` helper.
+   */
+  async provisionBranch(
+    tenant: string,
+    payload: { base?: string }
+  ): Promise<{ branch: PersonalBranch; created: boolean }> {
+    const res = await fetch(this.url(this.branchesBase(tenant)), {
+      method: 'POST',
+      headers: { ...this.headers(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload ?? {}),
+    });
+    const d = await this.parse<{ data?: PersonalBranch } & PersonalBranch>(res);
+    return { branch: (d.data ?? d) as PersonalBranch, created: res.status === 201 };
+  }
+
+  /** GET /branches/me — the caller's personal branch, or null if not provisioned (404). */
+  async getMyBranch(tenant: string): Promise<PersonalBranch | null> {
+    try {
+      const d = await this.get<{ data?: PersonalBranch } & PersonalBranch>(
+        `${this.branchesBase(tenant)}/me`
+      );
+      return (d.data ?? d) as PersonalBranch;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
+  /** POST /branches/me/overlay/initiate — presigned PUT for an overlay blob. */
+  async initiateBranchOverlay(
+    tenant: string,
+    payload: { path: string; sha256: string; size: number }
+  ): Promise<BranchOverlayInitiateSlot> {
+    const d = await this.post<{ data?: BranchOverlayInitiateSlot } & BranchOverlayInitiateSlot>(
+      `${this.branchesBase(tenant)}/me/overlay/initiate`,
+      payload
+    );
+    return (d.data ?? d) as BranchOverlayInitiateSlot;
+  }
+
+  /** POST /branches/me/overlay — commit an add/replace after the R2 upload. */
+  async putBranchOverlay(
+    tenant: string,
+    payload: { path: string; sha256: string; size: number; exec?: boolean }
+  ): Promise<BranchOverlayPutResult> {
+    const d = await this.post<{ data?: BranchOverlayPutResult } & BranchOverlayPutResult>(
+      `${this.branchesBase(tenant)}/me/overlay`,
+      payload
+    );
+    return (d.data ?? d) as BranchOverlayPutResult;
+  }
+
+  /** DELETE /branches/me/overlay — remove a path (works even on base-inherited files). */
+  async removeBranchOverlay(tenant: string, targetPath: string): Promise<BranchOverlayPutResult> {
+    const d = await this.del<{ data?: BranchOverlayPutResult } & BranchOverlayPutResult>(
+      `${this.branchesBase(tenant)}/me/overlay`,
+      { path: targetPath }
+    );
+    return (d?.data ?? d) as BranchOverlayPutResult;
+  }
+
+  /**
+   * POST /branches/me/merge — merge the caller's overlay onto a shared
+   * channel (`into`). Gated server-side on the PROMOTE permission of the
+   * TARGET (not the branch). `version` optional — server auto-bumps patch
+   * when omitted.
+   */
+  async mergeBranch(
+    tenant: string,
+    payload: { into: string; version?: string }
+  ): Promise<BranchMergeResult> {
+    const d = await this.post<{ data?: BranchMergeResult } & BranchMergeResult>(
+      `${this.branchesBase(tenant)}/me/merge`,
+      payload
+    );
+    return (d.data ?? d) as BranchMergeResult;
   }
 
   // ── Versions (per tenant/channel) ─────────────────────────────────

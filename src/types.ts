@@ -185,3 +185,82 @@ export interface DraftPublishResult {
   promote_message?: string;
   [k: string]: unknown;
 }
+
+/**
+ * POST /launcher/{tenant}/{channel}/promote/{buildId} — met en ligne un build
+ * DÉJÀ publié (dormant → live). Endpoint séparé du publish (perm-gated
+ * launcher:promote + launcher.{tenant}.promote).
+ */
+export interface PromoteResult {
+  ok?: boolean;
+  build_id?: string;
+  /** Build précédemment en ligne sur ce channel (null si c'était le 1er). */
+  previous_build_id?: string | null;
+  manifest_sha256?: string;
+  promoted_at?: string;
+  tenant?: string;
+  channel?: string;
+  [k: string]: unknown;
+}
+
+// ── Personal branches (dev-{handle}, base ⊕ overlay, backend PersonalBranchController) ──
+// A personal branch is a private TenantChannel derived from a root channel
+// (default `stable`) : the owner mutates an overlay (add/replace/remove) on
+// top of the base, auto-recomposed + re-signed on every mutation. Never
+// accessible via a service token server-side (mutating a live auto-recomposed
+// channel is a deliberate human action).
+
+/** GET/POST /launcher/{tenant}/branches(/me) payload shape (branchPayload()). */
+export interface PersonalBranch {
+  id: string | number;
+  tenant: string;
+  name: string;
+  label?: string | null;
+  base_channel_name?: string | null;
+  owner_user_id?: string | number | null;
+  auto_recompose?: boolean;
+  latest_build_id?: string | number | null;
+  composed_from_base_build_id?: string | number | null;
+  overlay_rev?: number;
+  last_activity_at?: string | null;
+  /** Only present on GET /branches/me (withOverlay: true). */
+  overlay?: BranchOverlayEntry[];
+  [k: string]: unknown;
+}
+
+/** One row of a personal branch's overlay (ChannelOverlay). */
+export interface BranchOverlayEntry {
+  path: string;
+  action: 'add' | 'replace' | 'remove';
+  sha256?: string | null;
+  size?: number | null;
+  exec?: boolean;
+}
+
+/** POST /branches/me/overlay/initiate — presigned PUT slot for an overlay blob. */
+export interface BranchOverlayInitiateSlot {
+  action: 'skip' | 'upload';
+  path: string;
+  sha256: string;
+  size: number;
+  upload_url?: string;
+  upload_method?: string;
+  upload_headers?: Record<string, string>;
+}
+
+/** POST/DELETE /branches/me/overlay result — commit + recompose outcome. */
+export interface BranchOverlayPutResult {
+  overlay: { path: string; action: string; sha256?: string | null; size?: number | null; exec?: boolean };
+  recomposed: boolean;
+  build_id?: string | null;
+}
+
+/**
+ * POST /branches/me/merge — merges the caller's overlay onto a shared
+ * (root) channel `into`. Gated server-side on the PROMOTE permission of the
+ * TARGET, not the branch itself.
+ */
+export interface BranchMergeResult {
+  into: string;
+  build_id: string;
+}
