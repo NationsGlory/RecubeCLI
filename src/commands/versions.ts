@@ -3,6 +3,7 @@
  */
 
 import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
+import { NoPersonalBranchError, noBranchHint, resolveChannelAlias } from '../lib/branch.js';
 import { ui, chalk } from '../lib/ui.js';
 
 export async function versionsListCommand(
@@ -21,16 +22,29 @@ export async function versionsListCommand(
     throw err;
   }
 
-  const { versions, adminDenied } = await session.api.listVersions(tenant, opts.channel);
+  // `--channel @me` → la branche perso de l'appelant (dev-{handle}).
+  let channel = opts.channel;
+  if (channel) {
+    try {
+      channel = await resolveChannelAlias(session.api, tenant, channel);
+    } catch (err) {
+      if (err instanceof NoPersonalBranchError) {
+        ui.log.warn(noBranchHint(tenant));
+        process.exitCode = 1;
+        return;
+      }
+      throw err;
+    }
+  }
+
+  const { versions, adminDenied } = await session.api.listVersions(tenant, channel);
   if (versions.length === 0) {
     if (adminDenied) {
       ui.log.warn(
         `Liste complète des versions = scope admin requis (toi = pas admin).\nFallback public n'a rien retourné. Utilise ${chalk.cyan('recube channels list ' + tenant)} pour voir la dernière version par channel.`
       );
     } else {
-      ui.log.info(
-        `Aucune version pour ${tenant}${opts.channel ? ` (channel=${opts.channel})` : ''}.`
-      );
+      ui.log.info(`Aucune version pour ${tenant}${channel ? ` (channel=${channel})` : ''}.`);
     }
     return;
   }

@@ -23,6 +23,7 @@ import path from 'node:path';
 import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
 import { getStoredUser } from '../auth/store.js';
 import { ApiError } from '../lib/api.js';
+import { ME_ALIAS, NoPersonalBranchError, noBranchHint, resolveChannelAlias } from '../lib/branch.js';
 import { hashFile } from '../lib/publish-pipeline.js';
 import {
   loadDraftState,
@@ -84,6 +85,25 @@ async function session(): Promise<AuthenticatedSession> {
     console.error(chalk.dim(`auth : ${who}`));
   }
   return s;
+}
+
+/**
+ * Résout `--channel @me` → la branche perso de l'appelant (dev-{handle}).
+ * Toute autre valeur passe inchangée. Sort proprement (fail) si l'alias ne
+ * peut pas être résolu (pas de branche perso encore provisionnée).
+ */
+async function resolveMeChannel(
+  s: AuthenticatedSession,
+  tenant: string,
+  channel: string
+): Promise<string> {
+  if (channel !== ME_ALIAS) return channel;
+  try {
+    return await resolveChannelAlias(s.api, tenant, channel);
+  } catch (err) {
+    if (err instanceof NoPersonalBranchError) fail(noBranchHint(tenant));
+    throw err;
+  }
 }
 
 /**
@@ -256,13 +276,14 @@ export async function draftCreateCommand(opts: {
   if (!opts.tenant) fail('--tenant requis');
   if (!opts.channel) fail('--channel requis');
   const tenant = opts.tenant;
-  const channel = opts.channel;
   // version optionnelle : vide → le serveur calcule la version en ligne +1 patch
   // (autoritaire). Fournie → override, validé > en ligne côté serveur.
   const version = opts.version;
 
   const s = await session();
   refuseServiceTokenForNonAdd(s, 'create');
+  // `--channel @me` → la branche perso de l'appelant (dev-{handle}).
+  const channel = await resolveMeChannel(s, tenant, opts.channel);
   try {
     // version_tag envoyé seulement si override fourni ; sinon omis → le serveur
     // auto-incrémente (next semver du channel).
@@ -310,6 +331,8 @@ export async function draftListCommand(opts: {
 
   const s = await session();
   refuseServiceTokenForNonAdd(s, 'list');
+  // `--channel @me` → la branche perso de l'appelant (dev-{handle}).
+  channel = await resolveMeChannel(s, tenant, channel);
   try {
     const drafts = await s.api.listDrafts(tenant, channel);
     if (drafts.length === 0) {
@@ -492,7 +515,9 @@ export async function draftPublishCommand(opts: {
   //  - aucun des deux → pointeur local .recube/draft.json (flux dev habituel).
   let st: DraftState;
   if (opts.tenant && opts.channel) {
-    st = await resolveOpenDraft(s, opts.tenant, opts.channel);
+    // `--channel @me` → la branche perso de l'appelant (dev-{handle}).
+    const channel = await resolveMeChannel(s, opts.tenant, opts.channel);
+    st = await resolveOpenDraft(s, opts.tenant, channel);
   } else if (opts.tenant || opts.channel) {
     fail('Précise --tenant ET --channel ensemble (ou aucun des deux pour cibler le draft courant local).');
   } else {
@@ -563,6 +588,14 @@ export async function draftPublishCommand(opts: {
         chalk.dim(
           '  Le PROMOTE est séparé — le build est publié mais PAS live. Promote via l\'admin/API quand prêt.'
         )
+      );
+    }
+    // Build resté dormant (sans --promote, ou promote refusé/échoué) → hint
+    // copiable pour le mettre en ligne plus tard avec `recube promote`.
+    if (!res.promoted && b.build_id) {
+      info(
+        chalk.dim('  → Pour le mettre en ligne : ') +
+          `recube promote -t ${st.tenant} -c ${st.channel} -b ${b.build_id}`
       );
     }
     // Efface le pointeur local UNIQUEMENT s'il visait CE draft (un publish ciblé

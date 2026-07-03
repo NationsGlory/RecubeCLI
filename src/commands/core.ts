@@ -29,6 +29,7 @@ import path from 'node:path';
 import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
 import { getStoredUser } from '../auth/store.js';
 import { ApiError } from '../lib/api.js';
+import { NoPersonalBranchError, noBranchHint, resolveChannelAlias } from '../lib/branch.js';
 import { hashFile } from '../lib/publish-pipeline.js';
 import { chalk } from '../lib/ui.js';
 import type { AuthenticatedSession } from '../auth/session.js';
@@ -130,7 +131,6 @@ export async function corePublishCommand(opts: {
   if (!opts.tenant) fail('--tenant requis');
   if (!opts.version) fail('--version requis (tag, ex: 0.4.0)');
   const tenant = opts.tenant;
-  const channel = opts.channel ?? 'tenant-wide';
   const version = opts.version;
 
   // Exactly one source : --file OR (--url + --sha256).
@@ -148,6 +148,15 @@ export async function corePublishCommand(opts: {
   }
 
   const s = await session();
+  // `--channel @me` → la branche perso de l'appelant (dev-{handle}). Défaut
+  // inchangé : 'tenant-wide' quand --channel est omis.
+  let channel = opts.channel ?? 'tenant-wide';
+  try {
+    channel = await resolveChannelAlias(s.api, tenant, channel);
+  } catch (err) {
+    if (err instanceof NoPersonalBranchError) fail(noBranchHint(tenant));
+    throw err;
+  }
   try {
     if (opts.file) {
       const abs = path.resolve(opts.file);
@@ -190,9 +199,16 @@ export async function coreListCommand(opts: {
   const tenant = opts.tenant;
   // Défaut aligné sur `core publish` ('tenant-wide') : cohérent avec resolveFor
   // côté serveur qui fallback sur la row tenant-wide (channel NULL).
-  const channel = opts.channel ?? 'tenant-wide';
+  let channel = opts.channel ?? 'tenant-wide';
 
   const s = await session();
+  // `--channel @me` → la branche perso de l'appelant (dev-{handle}).
+  try {
+    channel = await resolveChannelAlias(s.api, tenant, channel);
+  } catch (err) {
+    if (err instanceof NoPersonalBranchError) fail(noBranchHint(tenant));
+    throw err;
+  }
   try {
     const latest = await s.api.coreLatest(tenant, channel);
     if (!latest) {
