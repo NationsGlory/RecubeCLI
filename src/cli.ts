@@ -34,6 +34,13 @@ import {
   draftPublishCommand,
   draftAbandonCommand,
 } from './commands/draft.js';
+import {
+  branchCreateCommand,
+  branchShowCommand,
+  branchOverlayAddCommand,
+  branchOverlayRmCommand,
+} from './commands/branch.js';
+import { mergeCommand } from './commands/merge.js';
 
 const program = new Command();
 
@@ -54,6 +61,10 @@ const EXAMPLES: Record<string, string[]> = {
     'recube draft add ./build/mods/mon-mod.jar',
     'recube draft publish -t nationsglory -c beta',
     'recube promote -t nationsglory -c beta -b <buildId>',
+    '# Flow branche perso : create → overlay add/rm (itère en autonomie) → merge (live)',
+    'recube branch create -t nationsglory',
+    'recube branch overlay add ./build/mods/mon-mod.jar -t nationsglory',
+    'recube merge -t nationsglory --into beta',
   ],
   'recube login': [
     'recube login',
@@ -69,6 +80,30 @@ const EXAMPLES: Record<string, string[]> = {
   'recube promote': [
     '# Met en ligne un build déjà publié (dormant → live) quand tu es prêt.',
     'recube promote -t nationsglory -c beta -b <buildId>',
+  ],
+  'recube branch': [
+    'recube branch create -t nationsglory',
+    'recube branch create -t nationsglory --base beta',
+    'recube branch show -t nationsglory',
+  ],
+  'recube branch create': [
+    '# Base par défaut : stable. Idempotent — relancer renvoie ta branche existante.',
+    'recube branch create -t nationsglory',
+    'recube branch create -t nationsglory --base beta',
+  ],
+  'recube branch show': ['recube branch show -t nationsglory'],
+  'recube branch overlay add': [
+    'recube branch overlay add ./build/mods/mon-mod.jar -t nationsglory',
+    'recube branch overlay add ./build/config/mon-mod.cfg -t nationsglory --path config/mon-mod.cfg',
+  ],
+  'recube branch overlay rm': ['recube branch overlay rm mods/vieux-mod.jar -t nationsglory'],
+  'recube merge': [
+    "# Merge l'overlay de ta branche perso sur un channel PARTAGÉ — met en ligne sous ~30s.",
+    'recube merge -t nationsglory --into beta',
+    '# Override de version (sinon : auto-bump patch de la version live de la cible).',
+    'recube merge -t nationsglory --into beta --version-tag 1.4.2',
+    '# CI/scripts : saute la confirmation interactive.',
+    'recube merge -t nationsglory --into beta --yes',
   ],
   'recube completion': [
     'recube completion bash > ~/.recube-completion.bash',
@@ -268,7 +303,7 @@ program
       'compromis peut publier un build dormant mais jamais le servir aux joueurs sans cette perm.'
   )
   .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
-  .requiredOption('-c, --channel <name>', 'channel (ex : stable, beta)')
+  .requiredOption('-c, --channel <name>', 'channel (ex : stable, beta, @me = ta branche perso)')
   .requiredOption('-b, --build <buildId>', 'id du build publié à mettre en ligne')
   .action(async (opts: { tenant?: string; channel?: string; build?: string }) => {
     await promoteCommand({ tenant: opts.tenant, channel: opts.channel, build: opts.build });
@@ -299,7 +334,7 @@ const versions = program
 versions
   .command('list <tenant>')
   .description('Lister les versions publiées pour un tenant')
-  .option('-c, --channel <name>', 'filtrer par channel')
+  .option('-c, --channel <name>', 'filtrer par channel (@me = ta branche perso)')
   .action(async (tenant: string, opts: { channel?: string }) => {
     await versionsListCommand(tenant, { channel: opts.channel });
   });
@@ -314,7 +349,7 @@ core
   .command('publish')
   .description('Publier un build recube-core sur un channel (token de service rcs_ autorisé = CI)')
   .requiredOption('-t, --tenant <t>', 'slug du tenant (ex : nationsglory)')
-  .option('-c, --channel <c>', 'channel cible', 'tenant-wide')
+  .option('-c, --channel <c>', 'channel cible (@me = ta branche perso)', 'tenant-wide')
   .requiredOption('-V, --version <v>', 'tag de version (ex : 0.4.0)')
   .option('--file <path>', 'jar local à uploader (multipart, hash serveur) ; OU --url/--sha256')
   .option('--url <key>', 'clé R2 relative déjà hébergée (ex : recube-core/0.4.0.jar ; PAS une URL absolue)')
@@ -343,7 +378,7 @@ core
   .command('list')
   .description('Afficher le recube-core courant d\'un channel (version/sha256/url)')
   .requiredOption('-t, --tenant <t>', 'slug du tenant')
-  .option('-c, --channel <c>', 'channel (défaut : tenant-wide)')
+  .option('-c, --channel <c>', 'channel (défaut : tenant-wide ; @me = ta branche perso)')
   .action(async (opts: { tenant?: string; channel?: string }) => {
     await coreListCommand({ tenant: opts.tenant, channel: opts.channel });
   });
@@ -357,7 +392,7 @@ draft
   .command('create')
   .description('Créer un draft (devient le draft courant, tracké dans .recube/draft.json)')
   .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
-  .requiredOption('-c, --channel <name>', 'channel (ex: stable, beta)')
+  .requiredOption('-c, --channel <name>', 'channel (ex: stable, beta, @me = ta branche perso)')
   // `--version-tag` (PAS `--version`) : `--version` entre en collision avec le
   // flag version global de commander (program.version) → imprime juste "0.2.1".
   // Optionnel : vide → le serveur auto-remplit la version en ligne +1 patch.
@@ -379,7 +414,7 @@ draft
   .command('list')
   .description('Lister les drafts (tenant/channel du draft courant, ou via flags)')
   .option('-t, --tenant <slug>', 'slug du tenant')
-  .option('-c, --channel <name>', 'channel')
+  .option('-c, --channel <name>', 'channel (@me = ta branche perso)')
   .action(async (opts: { tenant?: string; channel?: string }) => {
     await draftListCommand({ tenant: opts.tenant, channel: opts.channel });
   });
@@ -433,7 +468,7 @@ draft
       'token a la perm de promotion ; sinon promote plus tard avec `recube promote`.'
   )
   .option('-t, --tenant <slug>', 'tenant du draft à publier — fetch le draft en cours (défaut : draft courant local)')
-  .option('-c, --channel <name>', 'channel du draft à publier — fetch le draft en cours (défaut : draft courant local)')
+  .option('-c, --channel <name>', 'channel du draft à publier (@me = ta branche perso) — fetch le draft en cours (défaut : draft courant local)')
   .option('-r, --reference <ref>', 'reference du build (≤ 96 car ; défaut auto : {tenant}-{channel}-{version}-b{ts})')
   .option('-n, --note <note>', 'note/changelog (6 à 2000 car ; défaut généré si absent)')
   .option('-p, --promote', 'met le build en ligne immédiatement après publication (dormant → live ; nécessite le scope+perm de promotion)')
@@ -453,6 +488,91 @@ draft
   .action(async () => {
     await draftAbandonCommand();
   });
+
+// ── branch (branches perso dev-{handle}, base ⊕ overlay) ─────────────────
+// Toujours TA propre branche (le serveur résout `me`, jamais d'accès
+// cross-dev) — pas de --channel ici, contrairement à draft/promote/core/
+// versions où `@me` est un ALIAS qu'on résout vers cette même branche.
+const branch = program
+  .command('branch')
+  .description('Branche perso dev-{handle} : create/show/overlay add/rm (scope launcher:draft, jamais de token de service)');
+
+branch
+  .command('create')
+  .description("Provisionner (idempotent) ta branche perso, basée sur --base (défaut stable)")
+  .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
+  .option('--base <channel>', 'channel de base à composer (défaut : stable)')
+  .action(async (opts: { tenant?: string; base?: string }) => {
+    await branchCreateCommand({ tenant: opts.tenant, base: opts.base });
+  });
+
+branch
+  .command('show')
+  .description('Afficher ta branche perso (base, dernier build, overlay_rev, overlay détaillé)')
+  .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
+  .action(async (opts: { tenant?: string }) => {
+    await branchShowCommand({ tenant: opts.tenant });
+  });
+
+const branchOverlay = branch
+  .command('overlay')
+  .description('Muter l\'overlay de ta branche perso (add/rm) — recompose + re-signe à chaque appel');
+
+branchOverlay
+  .command('add <file>')
+  .description('Ajouter/remplacer un fichier dans ta branche perso (hash + upload R2 + commit + recompose)')
+  .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
+  .option('--path <virtualPath>', 'chemin cible dans le build (défaut : basename du fichier)')
+  .option('--exec', 'marquer le fichier exécutable')
+  .action(async (file: string, opts: { tenant?: string; path?: string; exec?: boolean }) => {
+    await branchOverlayAddCommand(file, { tenant: opts.tenant, path: opts.path, exec: opts.exec });
+  });
+
+branchOverlay
+  .command('rm <path>')
+  .description("Retirer un fichier de ta branche perso (fonctionne aussi sur un fichier hérité de la base)")
+  .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
+  .action(async (p: string, opts: { tenant?: string }) => {
+    await branchOverlayRmCommand(p, { tenant: opts.tenant });
+  });
+
+// ── merge (branche perso → channel partagé) ──────────────────────────────
+// Séparé de `branch` À DESSEIN : gaté sur la perm promote de la CIBLE (pas la
+// perm dev-branch de la source) — même barrière anti-escalade que promote.
+program
+  .command('merge')
+  .description(
+    "Merger l'overlay de ta branche perso sur un channel PARTAGÉ (--into) — met en ligne sous ~30s. " +
+      'Perm-gated sur la perm promote de la CIBLE (scope launcher:promote), pas sur ta branche.'
+  )
+  .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
+  .requiredOption('-i, --into <channel>', 'channel cible partagé (ex : beta, stable)')
+  .option('--from <alias>', "source du merge — ne supporte que '@me' (ta branche perso)", '@me')
+  // `--version-tag` (PAS `--version`, même gotcha que `draft create`) :
+  // `--version` entre en collision avec le flag version global de commander
+  // (program.version()) et imprimerait juste le numéro de version du CLI.
+  .option(
+    '-V, --version-tag <semver>',
+    'override de version (défaut : auto-bump patch de la version live de la cible)'
+  )
+  .option('-y, --yes', 'sauter la confirmation interactive (CI/scripts)')
+  .action(
+    async (opts: {
+      tenant?: string;
+      into?: string;
+      from?: string;
+      versionTag?: string;
+      yes?: boolean;
+    }) => {
+      await mergeCommand({
+        tenant: opts.tenant,
+        into: opts.into,
+        from: opts.from,
+        version: opts.versionTag,
+        yes: opts.yes,
+      });
+    }
+  );
 
 program
   .command('doctor')
