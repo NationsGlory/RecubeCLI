@@ -1,23 +1,22 @@
 /**
- * `recube merge` — merges the caller's personal-branch overlay onto a shared
- * channel (`--into`).
+ * `recube merge` — merges a SOURCE overlay/channel onto a shared channel
+ * (`--into`). Two routes, selected by `--from` :
  *
- *   POST /api/v1/launcher/{tenant}/branches/me/merge   body { into, version? }
+ *   --from @me (default)     POST /branches/me/merge            body { into, version? }
+ *   --from <channel>         POST /channels/{source}/merge      body { into, version? }
  *
- * Gated server-side on the PROMOTE permission of the TARGET channel (not the
- * branch) — `launcher:promote` scope + `launcher.{tenant}.promote` (or the
- * target's own perm_slug), or being owner of the target. This is a
- * deliberate anti-escalade barrier (design §5/§7) : having a personal branch
- * never grants the right to go live anywhere.
- *
- * `--from` only ever accepts `@me` — the backend always resolves the SOURCE
- * as the caller's own branch (`resolveMe`), there is no cross-dev merge. The
- * flag exists for symmetry/clarity with `--into`, not as a real choice.
+ * `@me` always resolves server-side to the caller's own personal branch
+ * (`resolveMe`) — unchanged since v0.5.0. Any OTHER value is treated as an
+ * arbitrary DERIVED channel name and hits the generalized endpoint : gated on
+ * read-entitlement of the SOURCE + the PROMOTE permission of the TARGET (not
+ * the source) — same anti-escalade barrier as the `@me` path (design §5/§7) :
+ * having/reading a channel never grants the right to go live elsewhere.
  *
  * Destructive-ish (puts a build LIVE on a shared channel) : confirms
  * interactively unless `--yes` is passed. Service tokens (RECUBE_TOKEN=rcs_…)
  * are refused outright, same as `recube branch *` (personal-branch routes
- * never accept them server-side).
+ * never accept them server-side) — this also covers the generalized route
+ * since both go through the same OAuth-only `session()` helper below.
  */
 
 import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
@@ -75,6 +74,20 @@ async function session(): Promise<AuthenticatedSession> {
   return s;
 }
 
+/**
+ * Resolve the `--from` flag to a routing decision : `@me` (default, absent
+ * flag included) merges the caller's personal branch via `mergeBranch`
+ * (`/branches/me/merge`) ; any other value is passed through as-is as the
+ * SOURCE channel name for the generalized `mergeChannel`
+ * (`/channels/{source}/merge`). Pure/no I/O — kept separate from
+ * `mergeCommand` so the @me-vs-channel routing is unit-testable without
+ * standing up a session.
+ */
+export function resolveMergeSource(from: string | undefined): { isMe: boolean; source: string } {
+  const source = from ?? ME_ALIAS;
+  return { isMe: source === ME_ALIAS, source };
+}
+
 function parseBody(err: ApiError): { code: string; message: string } {
   try {
     const body = JSON.parse(err.body) as { error?: string; message?: string };
@@ -120,6 +133,14 @@ export function explainMergeError(err: unknown, tenant: string, into: string): s
         return `Merge refusé (422 target_build_missing) : ${message || 'build live de la cible introuvable.'}`;
       case 'target_manifest_unreadable':
         return `Merge refusé (422 target_manifest_unreadable) : ${message || 'manifest de la cible illisible.'}`;
+      case 'source_not_derived':
+        return (
+          `Merge refusé (422 source_not_derived) : ${message || "le channel source n'est pas un channel dérivé — seul un channel dérivé (branche perso ou draft-channel) peut être mergé."}`
+        );
+      case 'version_not_applicable':
+        return (
+          `Merge refusé (422 version_not_applicable) : ${message || '--version-tag ne peut pas être appliqué à ce merge (pas de version explicite acceptée pour cette source/cible).'}`
+        );
       default:
         return `Merge refusé (422 ${code || 'unprocessable'}) : ${message || err.body}`;
     }
@@ -129,6 +150,20 @@ export function explainMergeError(err: unknown, tenant: string, into: string): s
   }
 
   return message ? `${err.status}: ${message}` : `${err.status}: ${err.body}`;
+}
+
+/** Interactive confirm gate shared by both merge routes (--yes bypasses it). */
+async function confirmMergeOrExit(target: string, yes: boolean | undefined): Promise<void> {
+  if (yes) return;
+  const interactive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
+  if (!interactive) {
+    fail('Confirmation requise en mode non-interactif : ajoute --yes pour merger (CI/scripts).');
+  }
+  const proceed = await ui.confirm({
+    message: `Merger sur ${target} maintenant ?`,
+    initialValue: false,
+  });
+  if (!proceed) fail('Annulé.');
 }
 
 // ── command ──────────────────────────────────────────────────────────────
@@ -145,52 +180,61 @@ export async function mergeCommand(opts: {
   const tenant = opts.tenant;
   const into = opts.into;
 
-  const from = opts.from ?? ME_ALIAS;
-  if (from !== ME_ALIAS) {
-    fail(
-      `--from ne supporte que '${ME_ALIAS}' : le serveur merge TOUJOURS la branche perso de l'appelant ` +
-        '(pas de merge cross-dev).'
-    );
-  }
   if (opts.version && !/^\d+\.\d+\.\d+$/.test(opts.version)) {
     fail('--version doit être un semver x.y.z (ex : 1.4.2).');
   }
 
+  const { isMe, source } = resolveMergeSource(opts.from);
   const s = await session();
 
-  let branch: PersonalBranch | null;
-  try {
-    branch = await s.api.getMyBranch(tenant);
-  } catch (err) {
-    fail(explainMergeError(err, tenant, into));
-  }
-  if (!branch) fail(noBranchHint(tenant));
+  if (isMe) {
+    let branch: PersonalBranch | null;
+    try {
+      branch = await s.api.getMyBranch(tenant);
+    } catch (err) {
+      fail(explainMergeError(err, tenant, into));
+    }
+    if (!branch) fail(noBranchHint(tenant));
 
-  const overlayCount = branch.overlay?.length ?? 0;
-  info(`Branche perso ${chalk.bold(branch.name)} → merge vers ${chalk.bold(`${tenant}/${into}`)}`);
-  info(`  overlay actuel : ${overlayCount} entrée(s) (add/replace/remove)`);
-  info(`  version        : ${opts.version ?? '(auto-bump patch de la version live de la cible)'}`);
+    const overlayCount = branch.overlay?.length ?? 0;
+    info(`Branche perso ${chalk.bold(branch.name)} → merge vers ${chalk.bold(`${tenant}/${into}`)}`);
+    info(`  overlay actuel : ${overlayCount} entrée(s) (add/replace/remove)`);
+    info(`  version        : ${opts.version ?? '(auto-bump patch de la version live de la cible)'}`);
+    warn(
+      `Ceci va METTRE EN LIGNE l'overlay sur le channel PARTAGÉ '${into}' — les joueurs de ce channel ` +
+        'verront le changement sous ~30s après le build. Ton overlay perso PERSISTE (tu peux itérer après).'
+    );
+
+    await confirmMergeOrExit(`${tenant}/${into}`, opts.yes);
+
+    try {
+      const res = await s.api.mergeBranch(tenant, { into, version: opts.version });
+      ok(
+        `Overlay mergé sur ${chalk.bold(`${tenant}/${res.into}`)} → build ${chalk.bold(res.build_id)}. ` +
+          'Live sous ~30s.'
+      );
+      info(chalk.dim(`  → recube versions list ${tenant} --channel ${res.into}`));
+    } catch (err) {
+      fail(explainMergeError(err, tenant, into));
+    }
+    return;
+  }
+
+  // Generalized route : `source` is an arbitrary derived channel name (not
+  // @me) — no personal-branch fetch, straight to /channels/{source}/merge.
+  info(`Channel ${chalk.bold(source)} → merge vers ${chalk.bold(`${tenant}/${into}`)}`);
+  info(`  version : ${opts.version ?? '(auto-bump patch de la version live de la cible)'}`);
   warn(
-    `Ceci va METTRE EN LIGNE l'overlay sur le channel PARTAGÉ '${into}' — les joueurs de ce channel ` +
-      'verront le changement sous ~30s après le build. Ton overlay perso PERSISTE (tu peux itérer après).'
+    `Ceci va METTRE EN LIGNE le contenu de '${source}' sur le channel PARTAGÉ '${into}' — les joueurs de ` +
+      'ce channel verront le changement sous ~30s après le build.'
   );
 
-  if (!opts.yes) {
-    const interactive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
-    if (!interactive) {
-      fail('Confirmation requise en mode non-interactif : ajoute --yes pour merger (CI/scripts).');
-    }
-    const proceed = await ui.confirm({
-      message: `Merger sur ${tenant}/${into} maintenant ?`,
-      initialValue: false,
-    });
-    if (!proceed) fail('Annulé.');
-  }
+  await confirmMergeOrExit(`${tenant}/${into}`, opts.yes);
 
   try {
-    const res = await s.api.mergeBranch(tenant, { into, version: opts.version });
+    const res = await s.api.mergeChannel(tenant, source, { into, version: opts.version });
     ok(
-      `Overlay mergé sur ${chalk.bold(`${tenant}/${res.into}`)} → build ${chalk.bold(res.build_id)}. ` +
+      `'${source}' mergé sur ${chalk.bold(`${tenant}/${res.into}`)} → build ${chalk.bold(res.build_id)}. ` +
         'Live sous ~30s.'
     );
     info(chalk.dim(`  → recube versions list ${tenant} --channel ${res.into}`));

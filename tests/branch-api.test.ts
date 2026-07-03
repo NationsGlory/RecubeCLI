@@ -182,3 +182,49 @@ describe('mergeBranch', () => {
     });
   });
 });
+
+describe('mergeChannel', () => {
+  it('posts { into, version? } to /channels/{source}/merge and returns the merge result', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : String(input);
+      expect(url).toContain('/launcher/ng/channels/dev-alice/merge');
+      expect(JSON.parse(String(init?.body))).toEqual({ into: 'beta', version: '1.2.0' });
+      return new Response(JSON.stringify({ data: { into: 'beta', build_id: 'b3' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await mkApi().mergeChannel('ng', 'dev-alice', { into: 'beta', version: '1.2.0' });
+    expect(res.into).toBe('beta');
+    expect(res.build_id).toBe('b3');
+  });
+
+  it('omits version from the body when not provided', async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({ into: 'stable' });
+      return new Response(JSON.stringify({ data: { into: 'stable', build_id: 'b4' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await mkApi().mergeChannel('ng', 'release-canary', { into: 'stable' });
+  });
+
+  it('surfaces a 422 source_not_derived as an ApiError', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ message: 'not a derived channel', error: 'source_not_derived' }), {
+        status: 422,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      mkApi().mergeChannel('ng', 'stable', { into: 'beta' })
+    ).rejects.toMatchObject({ status: 422 });
+  });
+});

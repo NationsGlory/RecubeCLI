@@ -63,15 +63,33 @@ describe('explainMergeError', () => {
     expect(out).toMatch(/ng\/beta/);
   });
 
-  it.each(['version_not_greater', 'version_collision', 'materialize_incomplete', 'target_not_ready'])(
-    'surfaces %s on 422',
-    (code) => {
-      const err = new ApiError('422', 422, JSON.stringify({ message: `detail for ${code}`, error: code }));
-      const out = explainMergeError(err, 'ng', 'beta');
-      expect(out).toMatch(new RegExp(code));
-      expect(out).toMatch(new RegExp(`detail for ${code}`));
-    }
-  );
+  it.each([
+    'version_not_greater',
+    'version_collision',
+    'materialize_incomplete',
+    'target_not_ready',
+    'source_not_derived',
+    'version_not_applicable',
+  ])('surfaces %s on 422', (code) => {
+    const err = new ApiError('422', 422, JSON.stringify({ message: `detail for ${code}`, error: code }));
+    const out = explainMergeError(err, 'ng', 'beta');
+    expect(out).toMatch(new RegExp(code));
+    expect(out).toMatch(new RegExp(`detail for ${code}`));
+  });
+
+  it('falls back to a generic source_not_derived hint when the backend sends no message', () => {
+    const err = new ApiError('422', 422, JSON.stringify({ error: 'source_not_derived' }));
+    const out = explainMergeError(err, 'ng', 'beta');
+    expect(out).toMatch(/source_not_derived/);
+    expect(out).toMatch(/dérivé/);
+  });
+
+  it('falls back to a generic version_not_applicable hint when the backend sends no message', () => {
+    const err = new ApiError('422', 422, JSON.stringify({ error: 'version_not_applicable' }));
+    const out = explainMergeError(err, 'ng', 'beta');
+    expect(out).toMatch(/version_not_applicable/);
+    expect(out).toMatch(/--version-tag/);
+  });
 
   it('hints throttle on 429', () => {
     const err = new ApiError('429', 429, '');

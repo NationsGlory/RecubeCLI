@@ -100,6 +100,8 @@ const EXAMPLES: Record<string, string[]> = {
   'recube merge': [
     "# Merge l'overlay de ta branche perso sur un channel PARTAGÉ — met en ligne sous ~30s.",
     'recube merge -t nationsglory --into beta',
+    '# Merge un channel dérivé arbitraire (pas ta branche perso) sur la cible.',
+    'recube merge -t nationsglory --from dev-alice --into beta',
     '# Override de version (sinon : auto-bump patch de la version live de la cible).',
     'recube merge -t nationsglory --into beta --version-tag 1.4.2',
     '# CI/scripts : saute la confirmation interactive.',
@@ -536,18 +538,26 @@ branchOverlay
     await branchOverlayRmCommand(p, { tenant: opts.tenant });
   });
 
-// ── merge (branche perso → channel partagé) ──────────────────────────────
+// ── merge (source dérivée → channel partagé) ──────────────────────────────
 // Séparé de `branch` À DESSEIN : gaté sur la perm promote de la CIBLE (pas la
-// perm dev-branch de la source) — même barrière anti-escalade que promote.
+// perm dev-branch/read de la source) — même barrière anti-escalade que
+// promote. `--from` généralisé au-delà de `@me` : '@me' passe par
+// /branches/me/merge, tout autre nom de channel dérivé passe par le nouvel
+// endpoint /channels/{source}/merge (voir src/commands/merge.ts).
 program
   .command('merge')
   .description(
-    "Merger l'overlay de ta branche perso sur un channel PARTAGÉ (--into) — met en ligne sous ~30s. " +
-      'Perm-gated sur la perm promote de la CIBLE (scope launcher:promote), pas sur ta branche.'
+    "Merger une source (ta branche perso ou un channel dérivé arbitraire) sur un channel PARTAGÉ (--into) " +
+      '— met en ligne sous ~30s. Perm-gated sur la perm promote de la CIBLE (scope launcher:promote), ' +
+      'pas sur la source.'
   )
   .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
   .requiredOption('-i, --into <channel>', 'channel cible partagé (ex : beta, stable)')
-  .option('--from <alias>', "source du merge — ne supporte que '@me' (ta branche perso)", '@me')
+  .option(
+    '--from <alias>',
+    "source du merge — '@me' (ta branche perso, défaut) ou le nom d'un channel dérivé arbitraire",
+    '@me'
+  )
   // `--version-tag` (PAS `--version`, même gotcha que `draft create`) :
   // `--version` entre en collision avec le flag version global de commander
   // (program.version()) et imprimerait juste le numéro de version du CLI.

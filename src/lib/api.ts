@@ -9,6 +9,8 @@
  *   - GET  /v1/launcher/channels                   → launcher channels (refactor 2026-05-16)
  *   - POST /v1/launcher/channels                   → create channel
  *   - POST /v1/launcher/{tenant}/{channel}/builds/{initiate,commit}
+ *   - POST /v1/launcher/{tenant}/branches/me/merge          → merge caller's personal branch onto a target channel
+ *   - POST /v1/launcher/{tenant}/channels/{source}/merge    → merge an arbitrary derived channel onto a target channel
  *
  * The client refuses to send a request without an explicit auth token — the
  * higher-level commands are responsible for refreshing tokens before calling.
@@ -396,6 +398,28 @@ export class RecubeApiClient {
   ): Promise<BranchMergeResult> {
     const d = await this.post<{ data?: BranchMergeResult } & BranchMergeResult>(
       `${this.branchesBase(tenant)}/me/merge`,
+      payload
+    );
+    return (d.data ?? d) as BranchMergeResult;
+  }
+
+  /**
+   * POST /launcher/{tenant}/channels/{source}/merge — merge an arbitrary
+   * DERIVED channel (`source`) onto a shared target channel (`into`).
+   * Generalization of `mergeBranch` (which is hardwired to the caller's own
+   * personal branch via `/branches/me/merge`) : this works for ANY derived
+   * channel the caller has read-entitlement on, not just `@me`. Gated
+   * server-side on the PROMOTE permission of the TARGET (not the source) —
+   * same anti-escalade barrier as `mergeBranch`/`promote`. `version` is
+   * optional — server auto-bumps patch when omitted.
+   */
+  async mergeChannel(
+    tenant: string,
+    source: string,
+    payload: { into: string; version?: string }
+  ): Promise<BranchMergeResult> {
+    const d = await this.post<{ data?: BranchMergeResult } & BranchMergeResult>(
+      `/launcher/${encodeURIComponent(tenant)}/channels/${encodeURIComponent(source)}/merge`,
       payload
     );
     return (d.data ?? d) as BranchMergeResult;
