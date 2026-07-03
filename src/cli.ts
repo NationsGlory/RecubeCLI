@@ -23,6 +23,7 @@ import {
 import { versionsListCommand } from './commands/versions.js';
 import { doctorCommand } from './commands/doctor.js';
 import { corePublishCommand, coreListCommand } from './commands/core.js';
+import { promoteCommand } from './commands/promote.js';
 import {
   draftCreateCommand,
   draftListCommand,
@@ -48,14 +49,26 @@ const EXAMPLES: Record<string, string[]> = {
   recube: [
     'recube login --scope "launcher:publish launcher:draft profile:read"',
     'recube doctor',
-    'recube publish -t nationsglory -c stable -V 1.0.0 -d ./build',
+    '# Flow draft : add → publish (DORMANT, sûr) → promote (LIVE, perm requise)',
     'recube draft create -t nationsglory -c beta',
-    'recube channels list nationsglory',
+    'recube draft add ./build/mods/mon-mod.jar',
+    'recube draft publish -t nationsglory -c beta',
+    'recube promote -t nationsglory -c beta -b <buildId>',
   ],
   'recube login': [
     'recube login',
     'recube login --scope "launcher:publish launcher:draft profile:read"',
     'recube login --force',
+  ],
+  'recube draft publish': [
+    '# Par défaut : publie un build DORMANT (scellé/signé, PAS live) — défaut sûr.',
+    'recube draft publish -t nationsglory -c beta',
+    '# Raccourci pour les autorisés : publie ET met en ligne dans la foulée.',
+    'recube draft publish -t nationsglory -c beta --promote',
+  ],
+  'recube promote': [
+    '# Met en ligne un build déjà publié (dormant → live) quand tu es prêt.',
+    'recube promote -t nationsglory -c beta -b <buildId>',
   ],
   'recube completion': [
     'recube completion bash > ~/.recube-completion.bash',
@@ -133,7 +146,13 @@ function formatHelp(cmd: Command, helper: Help): string {
   if (ex?.length) {
     out.push(`  ${t.title('Exemples')}`, '');
     for (const e of ex) {
-      out.push(`  ${t.bullet()} ${t.command(e)}`);
+      // Les lignes d'annotation (`# …`) sont rendues comme notes discrètes,
+      // sans puce, pour distinguer le POURQUOI/flow des commandes copiables.
+      if (e.startsWith('#')) {
+        out.push(`     ${t.dim(e)}`);
+      } else {
+        out.push(`  ${t.bullet()} ${t.command(e)}`);
+      }
     }
     out.push('');
   }
@@ -235,6 +254,24 @@ program
       noRecubeCore: opts.recubeCore === false,
       include: opts.include,
     });
+  });
+
+// ── promote (build dormant → live) ───────────────────────────────────────
+// Séparé de publish À DESSEIN : publish scelle un build DORMANT (défaut sûr),
+// promote le met en ligne quand on est prêt. Perm-gated (launcher:promote) →
+// un token compromis ne peut jamais servir aux joueurs sans cette perm.
+program
+  .command('promote')
+  .description(
+    'Mettre en ligne un build déjà publié (dormant → live) quand tu es prêt. ' +
+      'Perm-gated (scope launcher:promote + perm launcher.{tenant}.promote) : un token ' +
+      'compromis peut publier un build dormant mais jamais le servir aux joueurs sans cette perm.'
+  )
+  .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
+  .requiredOption('-c, --channel <name>', 'channel (ex : stable, beta)')
+  .requiredOption('-b, --build <buildId>', 'id du build publié à mettre en ligne')
+  .action(async (opts: { tenant?: string; channel?: string; build?: string }) => {
+    await promoteCommand({ tenant: opts.tenant, channel: opts.channel, build: opts.build });
   });
 
 const channels = program
@@ -390,12 +427,16 @@ draft
 
 draft
   .command('publish')
-  .description('Finaliser le draft EN COURS en build immuable (scope launcher:publish ; PAS promote)')
+  .description(
+    'Finaliser le draft en build DORMANT (scellé/signé, scope launcher:publish, mais PAS servi ' +
+      'aux joueurs — défaut sûr). Ajoute --promote pour le mettre en ligne dans la foulée si ton ' +
+      'token a la perm de promotion ; sinon promote plus tard avec `recube promote`.'
+  )
   .option('-t, --tenant <slug>', 'tenant du draft à publier — fetch le draft en cours (défaut : draft courant local)')
   .option('-c, --channel <name>', 'channel du draft à publier — fetch le draft en cours (défaut : draft courant local)')
   .option('-r, --reference <ref>', 'reference du build (≤ 96 car ; défaut auto : {tenant}-{channel}-{version}-b{ts})')
   .option('-n, --note <note>', 'note/changelog (6 à 2000 car ; défaut généré si absent)')
-  .option('-p, --promote', 'met le build en ligne immédiatement après publication (nécessite la permission de promotion)')
+  .option('-p, --promote', 'met le build en ligne immédiatement après publication (dormant → live ; nécessite le scope+perm de promotion)')
   .action(async (opts: { tenant?: string; channel?: string; reference?: string; note?: string; promote?: boolean }) => {
     await draftPublishCommand({
       tenant: opts.tenant,
