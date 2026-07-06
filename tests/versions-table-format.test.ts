@@ -63,4 +63,15 @@ describe('buildVersionsTable', () => {
     expect(rows[0]).toContain('42');
     expect(rows[0]).toContain('2.0.0');
   });
+
+  it('rend "-" (pas vide/undefined) pour les champs absents (fallback admin-denied)', () => {
+    // Cas fallback : seuls channel + version (+ build_id parfois) sont connus.
+    const versions: Version[] = [{ version: '1.0.44', channel: 'stable' }];
+    const { rows } = buildVersionsTable(versions);
+    expect(rows[0]).not.toContain('undefined');
+    // id manquant → placeholder "-" en tête de ligne.
+    expect(rows[0].trimStart().startsWith('-')).toBe(true);
+    expect(rows[0]).toContain('1.0.44');
+    expect(rows[0]).toContain('stable');
+  });
 });

@@ -78,7 +78,7 @@ describe('listVersions cascade', () => {
         return new Response(
           JSON.stringify({
             data: [
-              { id: 'b1', name: 'stable', latest_version: '1.0.9' },
+              { id: 'b1', name: 'stable', latest_version: '1.0.9', latest_build_id: 'bid-stable-1' },
               { id: 'b2', name: 'beta', latest_version: '1.1.0-rc1' },
             ],
           }),
@@ -94,6 +94,8 @@ describe('listVersions cascade', () => {
     expect(versions).toHaveLength(1);
     expect(versions[0].channel).toBe('stable');
     expect(versions[0].version).toBe('1.0.9');
+    // Le synth remonte la build promotable du channel → promote -b résout en fallback.
+    expect(versions[0].build_id).toBe('bid-stable-1');
   });
 
   it('returns adminDenied=true when admin 401 + nothing else exists', async () => {

@@ -497,6 +497,13 @@ export class RecubeApiClient {
           id: String(b.id ?? b.name),
           version,
           channel: b.name,
+          // Le listing channels expose la live promotable par channel → on la
+          // remonte pour que `recube promote -b <version>` la résolve même en
+          // fallback (scope admin refusé). reference/created_at restent absents
+          // (non exposés ici) → rendus `-` par buildVersionsTable.
+          build_id:
+            (b as unknown as { latest_build_id?: string | number | null })
+              .latest_build_id ?? null,
         } as Version;
       })
       .filter((v) => v.version);

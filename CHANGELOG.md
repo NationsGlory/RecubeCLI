@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.6 — 2026-07-06
+
+### Changes
+
+- **`recube versions list` — fin des `undefined`/colonnes vides en fallback** :
+  quand le scope admin est refusé, le listing se rabat sur la liste des channels
+  (dernière version par channel). Les champs absents (id, reference, created_at)
+  sont désormais rendus `-` au lieu de `undefined`/vide, et le `build_id`
+  promotable est remonté depuis le channel (`latest_build_id`) → `recube promote
+  -b <version>` reste résoluble même en fallback.
+
 ## 0.7.5 — 2026-07-06
 
 ### Changes

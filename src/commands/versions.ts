@@ -19,12 +19,14 @@ export function buildVersionsTable(versions: Version[]): { header: string; rows:
     `${'id'.padEnd(26)} ${'version'.padEnd(14)} ${'channel'.padEnd(10)} ` +
     `${'build_id'.padEnd(38)} ${'reference'.padEnd(24)} ${'created_at'.padEnd(20)}`;
   const rows = versions.map((v) => {
-    const id = String(v.id ?? '').padEnd(26);
-    const ver = String(v.version ?? '').padEnd(14);
-    const ch = String(v.channel ?? '').padEnd(10);
-    const build = String(v.build_id ?? '').padEnd(38);
-    const ref = String(v.reference ?? '').padEnd(24);
-    const created = String(v.created_at ?? '').padEnd(20);
+    // Placeholder `-` (pas vide/undefined) quand un champ manque — typique du
+    // fallback "admin scope denied" qui ne connaît que channel/version/build_id.
+    const id = String(v.id ?? '-').padEnd(26);
+    const ver = String(v.version ?? '-').padEnd(14);
+    const ch = String(v.channel ?? '-').padEnd(10);
+    const build = String(v.build_id ?? '-').padEnd(38);
+    const ref = String(v.reference ?? '-').padEnd(24);
+    const created = String(v.created_at ?? '-').padEnd(20);
     return `${id} ${ver} ${ch} ${build} ${ref} ${created}`;
   });
   return { header, rows };
