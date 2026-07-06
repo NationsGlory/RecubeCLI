@@ -76,17 +76,6 @@ async function session(): Promise<AuthenticatedSession> {
 function explainPromoteError(err: unknown, tenant: string): string {
   if (!(err instanceof ApiError)) return err instanceof Error ? err.message : String(err);
 
-  if (err.status === 403) {
-    return (
-      `Promotion refusée (403) : il te faut le scope ${chalk.bold('launcher:promote')} + la perm ` +
-      `${chalk.bold(`launcher.${tenant}.promote`)} sur ton token.\n  ` +
-      chalk.dim('Demande à un release manager ou utilise un token autorisé.')
-    );
-  }
-  if (err.status === 429) {
-    return 'Throttle promotion (5/min) — réessaie dans un instant.';
-  }
-
   let code = '';
   let message = '';
   try {
@@ -95,6 +84,27 @@ function explainPromoteError(err: unknown, tenant: string): string {
     message = body.message ?? '';
   } catch {
     // corps non-JSON — on retombe sur err.body brut plus bas.
+  }
+
+  if (err.status === 403) {
+    // Surface le message backend précis (ex: "Missing permission
+    // 'launcher.ng.promote'" vs "Missing scope 'launcher:promote'") en primaire,
+    // et garde le hint scope/perm en secondaire.
+    const primary = message
+      ? `Promotion refusée (403) : ${message}`
+      : `Promotion refusée (403) : il te faut le scope ${chalk.bold('launcher:promote')} + la perm ${chalk.bold(`launcher.${tenant}.promote`)} sur ton token.`;
+    return (
+      primary +
+      '\n  ' +
+      chalk.dim(
+        message
+          ? `Requiert le scope launcher:promote + la perm launcher.${tenant}.promote. Demande à un release manager ou utilise un token autorisé.`
+          : 'Demande à un release manager ou utilise un token autorisé.'
+      )
+    );
+  }
+  if (err.status === 429) {
+    return 'Throttle promotion (5/min) — réessaie dans un instant.';
   }
   if (err.status === 404 || err.status === 409 || err.status === 422) {
     return `Promotion refusée (${err.status}${code ? ' ' + code : ''}) : ${message || err.body}`;

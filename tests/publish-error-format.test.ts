@@ -16,6 +16,16 @@ describe('formatPublishError', () => {
     expect(out).toMatch(/launcher\.\{tenant\}\.publish/);
   });
 
+  it('surfaces the precise backend message on 403 (perm vs scope)', () => {
+    const body = JSON.stringify({ message: "Missing permission 'launcher.nationsglory.publish'." });
+    const out = formatPublishError(
+      new Error(`POST https://recube.gg/v1/launcher/ng/stable/builds/initiate -> 403 Forbidden: ${body}`)
+    );
+    expect(out).toMatch(/Accès refusé \(403\) : Missing permission 'launcher\.nationsglory\.publish'\./);
+    // generic hint kept as secondary
+    expect(out).toMatch(/launcher\.\{tenant\}\.publish/);
+  });
+
   it('extracts laravel validation fields on 422', () => {
     const body = JSON.stringify({
       message: 'The given data was invalid.',

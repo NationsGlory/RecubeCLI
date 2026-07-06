@@ -146,7 +146,9 @@ export function explainMergeError(err: unknown, tenant: string, into: string): s
     }
   }
   if (err.status === 401) {
-    return `Accès refusé (401). Reconnecte-toi : recube login --scope "launcher:promote profile:read".`;
+    return message
+      ? `Accès refusé (401) : ${message}\n  Reconnecte-toi : recube login --scope "launcher:promote profile:read".`
+      : `Accès refusé (401). Reconnecte-toi : recube login --scope "launcher:promote profile:read".`;
   }
 
   return message ? `${err.status}: ${message}` : `${err.status}: ${err.body}`;

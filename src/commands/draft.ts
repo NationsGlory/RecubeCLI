@@ -23,6 +23,7 @@ import path from 'node:path';
 import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
 import { getStoredUser } from '../auth/store.js';
 import { ApiError } from '../lib/api.js';
+import { accessDeniedMessage } from '../lib/api-error.js';
 import { ME_ALIAS, NoPersonalBranchError, noBranchHint, resolveChannelAlias } from '../lib/branch.js';
 import { hashFile } from '../lib/publish-pipeline.js';
 import {
@@ -287,7 +288,11 @@ function explainApiError(err: unknown, ctx: 'create' | 'publish' | 'add' | 'gene
         return `Dépôt refusé (422 ${code || 'unprocessable'}) : ${body.message ?? err.body}`;
       }
       if (err.status === 403 || err.status === 401) {
-        return `Accès refusé (${err.status}). Vérifie RECUBE_TOKEN (token de service rcs_, scope launcher:draft) et que le tenant correspond.`;
+        return accessDeniedMessage(
+          err.status,
+          err,
+          'Vérifie RECUBE_TOKEN (token de service rcs_, scope launcher:draft) et que le tenant correspond.'
+        );
       }
     }
     if (ctx === 'publish') {
@@ -310,7 +315,11 @@ function explainApiError(err: unknown, ctx: 'create' | 'publish' | 'add' | 'gene
       }
     }
     if (err.status === 403 || err.status === 401) {
-      return `Accès refusé (${err.status}). Scope manquant ? Relance recube login avec le bon scope (launcher:draft / launcher:publish).`;
+      return accessDeniedMessage(
+        err.status,
+        err,
+        'Scope manquant ? Relance recube login avec le bon scope (launcher:draft / launcher:publish).'
+      );
     }
     return body.message ? `${err.status}: ${body.message}` : `${err.status}: ${err.body}`;
   } catch {

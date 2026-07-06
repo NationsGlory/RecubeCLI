@@ -29,6 +29,7 @@ import path from 'node:path';
 import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
 import { getStoredUser } from '../auth/store.js';
 import { ApiError } from '../lib/api.js';
+import { accessDeniedMessage } from '../lib/api-error.js';
 import { NoPersonalBranchError, noBranchHint, resolveChannelAlias } from '../lib/branch.js';
 import { hashFile } from '../lib/publish-pipeline.js';
 import { chalk } from '../lib/ui.js';
@@ -107,7 +108,11 @@ function explainApiError(err: unknown, ctx: 'publish' | 'list'): string {
       }
     }
     if (err.status === 403 || err.status === 401) {
-      return `Accès refusé (${err.status}). Vérifie le token (RECUBE_TOKEN rcs_ ou recube login) et le scope launcher:publish, et que le tenant correspond.`;
+      return accessDeniedMessage(
+        err.status,
+        err,
+        'Vérifie le token (RECUBE_TOKEN rcs_ ou recube login) et le scope launcher:publish, et que le tenant correspond.'
+      );
     }
     if (err.status === 404) {
       return `Introuvable (404). Tenant/channel inconnu(s) ?`;

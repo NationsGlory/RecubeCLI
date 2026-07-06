@@ -346,6 +346,22 @@ function truncate(s: string, max: number): string {
 }
 
 /**
+ * Extract the backend `message` field from a stringified publish-pipeline error
+ * (`… : {body}`). Returns '' when the trailing body is absent / non-JSON / has
+ * no message. Used to surface the precise backend reason on 401/403/…
+ */
+function extractBackendMessage(msg: string): string {
+  const bodyMatch = msg.match(/:\s*(\{.*\})\s*$/s);
+  if (!bodyMatch) return '';
+  try {
+    const body = JSON.parse(bodyMatch[1]) as { message?: unknown };
+    return typeof body.message === 'string' ? body.message : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Map common backend errors to actionable hints. Pattern-matches on the
  * stringified error from publish-pipeline (`POST {url} -> {status} {text}: {body}`).
  */
@@ -354,11 +370,18 @@ export function formatPublishError(err: Error): string {
   const statusMatch = msg.match(/-> (\d{3}) /);
   const status = statusMatch ? Number(statusMatch[1]) : null;
 
-  if (status === 401) {
-    return `${msg}\n\nHint : token expiré ou révoqué. Relance ${chalk.cyan('recube login')}.`;
-  }
-  if (status === 403) {
-    return `${msg}\n\nHint : permission manquante. Demande à un admin recube.gg le scope ${chalk.cyan('launcher.{tenant}.publish')} pour ton compte.`;
+  if (status === 401 || status === 403) {
+    // Surface le message backend précis s'il est présent (le body est appendu à
+    // la fin de `msg` par publish-pipeline). Le serveur distingue "Missing scope
+    // 'X'" de "Missing permission 'launcher.{tenant}.publish'" — on l'affiche en
+    // primaire au lieu de noyer le diag dans un hint générique.
+    const detail = extractBackendMessage(msg);
+    const lead = detail ? `${chalk.red(`Accès refusé (${status})`)} : ${detail}` : msg;
+    const hint =
+      status === 401
+        ? `Hint : token expiré ou révoqué. Relance ${chalk.cyan('recube login')}.`
+        : `Hint : scope/permission manquant(e). Il te faut le scope ${chalk.cyan('launcher:publish')} + la perm ${chalk.cyan('launcher.{tenant}.publish')} — demande à un admin recube.gg.`;
+    return `${lead}\n\n${hint}`;
   }
   if (status === 422) {
     const bodyMatch = msg.match(/:\s*(\{.*\})\s*$/s);

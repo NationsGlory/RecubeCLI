@@ -49,6 +49,18 @@ describe('explainBranchError', () => {
     expect(out).toMatch(/launcher:draft/);
   });
 
+  it('surfaces the precise backend message on a generic 403 (scope vs perm)', () => {
+    const err = new ApiError(
+      '403',
+      403,
+      JSON.stringify({ message: "Missing permission 'launcher.ng.publish'." })
+    );
+    const out = explainBranchError(err, 'overlay', 'ng');
+    expect(out).toMatch(/Accès refusé \(403\) : Missing permission 'launcher\.ng\.publish'\./);
+    // generic hint kept as secondary
+    expect(out).toMatch(/launcher:draft/);
+  });
+
   it('returns the raw message for a non-ApiError', () => {
     const out = explainBranchError(new Error('boom'), 'show', 'ng');
     expect(out).toBe('boom');
@@ -94,6 +106,13 @@ describe('explainMergeError', () => {
   it('hints throttle on 429', () => {
     const err = new ApiError('429', 429, '');
     expect(explainMergeError(err, 'ng', 'beta')).toMatch(/throttle/i);
+  });
+
+  it('surfaces the precise backend message on 401', () => {
+    const err = new ApiError('401', 401, JSON.stringify({ message: "Missing scope 'launcher:promote'." }));
+    const out = explainMergeError(err, 'ng', 'beta');
+    expect(out).toMatch(/Accès refusé \(401\) : Missing scope 'launcher:promote'\./);
+    expect(out).toMatch(/recube login/);
   });
 
   it('surfaces the not-found message on 404', () => {

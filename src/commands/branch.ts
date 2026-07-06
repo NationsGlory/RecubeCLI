@@ -26,6 +26,7 @@ import path from 'node:path';
 import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
 import { getStoredUser } from '../auth/store.js';
 import { ApiError } from '../lib/api.js';
+import { accessDeniedMessage } from '../lib/api-error.js';
 import { noBranchHint } from '../lib/branch.js';
 import { toDraftPath, InvalidDraftPathError } from '../lib/draft-path.js';
 import { hashFile } from '../lib/publish-pipeline.js';
@@ -161,9 +162,11 @@ function explainBranchError(
   }
 
   if (err.status === 403 || err.status === 401) {
-    return (
-      `Accès refusé (${err.status}). Vérifie le scope launcher:draft + ta session OAuth ` +
-      '(les tokens de service ne sont jamais acceptés sur les branches perso).'
+    return accessDeniedMessage(
+      err.status,
+      err,
+      'Vérifie le scope launcher:draft + ta session OAuth ' +
+        '(les tokens de service ne sont jamais acceptés sur les branches perso).'
     );
   }
 
