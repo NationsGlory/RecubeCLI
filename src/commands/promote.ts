@@ -132,14 +132,14 @@ export async function promoteCommand(opts: {
   tenant?: string;
   channel?: string;
   build?: string;
-  version?: string;
+  tag?: string;
 }): Promise<void> {
   if (!opts.tenant) fail('--tenant requis');
   if (!opts.channel) fail('--channel requis');
-  // `--version <tag>` est un alias explicite de `-b <tag>` : force le
-  // traitement « tag de version » même si la valeur ressemble à un UUID.
-  const raw = opts.version ?? opts.build;
-  const forceTag = opts.version != null;
+  // `--tag <tag>` est un alias explicite de `-b <tag>` : force le traitement
+  // « tag de version » même si la valeur ressemble à un UUID.
+  const raw = opts.tag ?? opts.build;
+  const forceTag = opts.tag != null;
   if (!raw)
     fail(
       '--build requis (id du build OU tag de version à mettre en ligne)\n  ' +

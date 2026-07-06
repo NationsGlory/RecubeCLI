@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.4 — 2026-07-06
+## 0.7.5 — 2026-07-06
 
 ### Changes
 
@@ -14,8 +14,10 @@
   sans build promotable a un message dédié ; UUID de draft (404 build_not_found)
   donne « cet id ressemble à un draft, pas à un build ; promeus par tag ou
   build_id ».
-- **`--version <tag>`** : alias explicite de `-b` forçant le traitement « tag »
-  (`-b` conservé pour la compat, auto-détection UUID/tag).
+- **`--tag <tag>`** : alias explicite de `-b` forçant le traitement « tag »
+  (`-b` conservé pour la compat, auto-détection UUID/tag). Nommé `--tag` et non
+  `--version` : ce dernier entre en collision avec le flag version global de
+  commander (`-v, --version`), qui l'intercepterait avant le parse.
 - **`recube versions list`** affiche désormais une colonne `build_id` (la valeur
   à passer à `recube promote`).
 

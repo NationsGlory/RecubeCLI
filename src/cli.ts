@@ -336,16 +336,20 @@ program
     '-b, --build <buildOrTag>',
     'build_id (UUID) OU tag de version (ex : 1.0.60) à mettre en ligne ; le tag est résolu en build_id via le listing des versions'
   )
+  // PAS `--version` : entrerait en collision avec le flag version global de
+  // commander (program.version '-v, --version') qui l'intercepte AVANT le parse
+  // de la sous-commande → `promote --version 1.0.60` imprimerait juste le n° du
+  // CLI et sortirait. Même gotcha que `draft create` / `merge` (--version-tag).
   .option(
-    '--version <tag>',
+    '--tag <tag>',
     'alias explicite : force le traitement de la valeur comme tag de version (résolu en build_id)'
   )
-  .action(async (opts: { tenant?: string; channel?: string; build?: string; version?: string }) => {
+  .action(async (opts: { tenant?: string; channel?: string; build?: string; tag?: string }) => {
     await promoteCommand({
       tenant: opts.tenant,
       channel: opts.channel,
       build: opts.build,
-      version: opts.version,
+      tag: opts.tag,
     });
   });
 
