@@ -42,6 +42,21 @@ describe('buildVersionsTable', () => {
     expect(rows[0]).toContain('2026-07-01T10:00:00Z');
   });
 
+  it('exposes a build_id column and renders it (résout promote -b <tag>)', () => {
+    const { header } = buildVersionsTable([]);
+    expect(header).toContain('build_id');
+    const versions: Version[] = [
+      {
+        id: 'v-row-1',
+        version: '1.0.60',
+        channel: 'beta',
+        build_id: 'bbbbbbbb-2222-2222-2222-222222222222',
+      },
+    ];
+    const { rows } = buildVersionsTable(versions);
+    expect(rows[0]).toContain('bbbbbbbb-2222-2222-2222-222222222222');
+  });
+
   it('tolerates numeric ids and missing optional fields', () => {
     const versions: Version[] = [{ id: 42, version: '2.0.0' }];
     const { rows } = buildVersionsTable(versions);

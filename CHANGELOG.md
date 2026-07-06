@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.4 — 2026-07-06
+
+### Changes
+
+- **`recube promote -b <val>` accepte un tag de version** : si `<val>` n'est pas
+  un build_id (UUID 36), il est traité comme un tag de version (ex `1.0.60`),
+  résolu en build_id via le listing des versions du tenant/channel, puis promu.
+  Un UUID reste utilisé tel quel (comportement inchangé). Fini les 404 opaques
+  quand on passait un tag (route 404) ou un id de draft (build_not_found).
+- **Messages d'erreur clairs** : tag introuvable donne « version <val>
+  introuvable sur {tenant}/{channel} (voir recube versions list) » ; version
+  sans build promotable a un message dédié ; UUID de draft (404 build_not_found)
+  donne « cet id ressemble à un draft, pas à un build ; promeus par tag ou
+  build_id ».
+- **`--version <tag>`** : alias explicite de `-b` forçant le traitement « tag »
+  (`-b` conservé pour la compat, auto-détection UUID/tag).
+- **`recube versions list`** affiche désormais une colonne `build_id` (la valeur
+  à passer à `recube promote`).
+
 ## 0.4.1 — 2026-06-30
 
 ### Changes

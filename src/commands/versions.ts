@@ -17,14 +17,15 @@ import type { Version } from '../types.js';
 export function buildVersionsTable(versions: Version[]): { header: string; rows: string[] } {
   const header =
     `${'id'.padEnd(26)} ${'version'.padEnd(14)} ${'channel'.padEnd(10)} ` +
-    `${'reference'.padEnd(24)} ${'created_at'.padEnd(20)}`;
+    `${'build_id'.padEnd(38)} ${'reference'.padEnd(24)} ${'created_at'.padEnd(20)}`;
   const rows = versions.map((v) => {
     const id = String(v.id ?? '').padEnd(26);
     const ver = String(v.version ?? '').padEnd(14);
     const ch = String(v.channel ?? '').padEnd(10);
+    const build = String(v.build_id ?? '').padEnd(38);
     const ref = String(v.reference ?? '').padEnd(24);
     const created = String(v.created_at ?? '').padEnd(20);
-    return `${id} ${ver} ${ch} ${ref} ${created}`;
+    return `${id} ${ver} ${ch} ${build} ${ref} ${created}`;
   });
   return { header, rows };
 }

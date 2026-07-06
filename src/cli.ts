@@ -332,9 +332,21 @@ program
   )
   .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
   .requiredOption('-c, --channel <name>', 'channel (ex : stable, beta, @me = ta branche perso)')
-  .requiredOption('-b, --build <buildId>', 'id du build publié à mettre en ligne')
-  .action(async (opts: { tenant?: string; channel?: string; build?: string }) => {
-    await promoteCommand({ tenant: opts.tenant, channel: opts.channel, build: opts.build });
+  .option(
+    '-b, --build <buildOrTag>',
+    'build_id (UUID) OU tag de version (ex : 1.0.60) à mettre en ligne ; le tag est résolu en build_id via le listing des versions'
+  )
+  .option(
+    '--version <tag>',
+    'alias explicite : force le traitement de la valeur comme tag de version (résolu en build_id)'
+  )
+  .action(async (opts: { tenant?: string; channel?: string; build?: string; version?: string }) => {
+    await promoteCommand({
+      tenant: opts.tenant,
+      channel: opts.channel,
+      build: opts.build,
+      version: opts.version,
+    });
   });
 
 const channels = program

@@ -16,8 +16,10 @@ import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
 import { getStoredUser } from '../auth/store.js';
 import { ApiError } from '../lib/api.js';
 import { NoPersonalBranchError, noBranchHint, resolveChannelAlias } from '../lib/branch.js';
+import { isBuildUuid, resolveBuildId } from '../lib/promote-target.js';
 import { chalk } from '../lib/ui.js';
 import type { AuthenticatedSession } from '../auth/session.js';
+import type { Version } from '../types.js';
 
 // ── helpers (même style plain que draft.ts / core.ts) ───────────────────────
 
@@ -73,7 +75,7 @@ async function session(): Promise<AuthenticatedSession> {
  *    missing_recube_core, unknown_recube_core_hash…) → on le surface.
  *  - 429  : throttle (5/min).
  */
-function explainPromoteError(err: unknown, tenant: string): string {
+function explainPromoteError(err: unknown, tenant: string, wasRawUuid = false): string {
   if (!(err instanceof ApiError)) return err instanceof Error ? err.message : String(err);
 
   let code = '';
@@ -84,6 +86,18 @@ function explainPromoteError(err: unknown, tenant: string): string {
     message = body.message ?? '';
   } catch {
     // corps non-JSON — on retombe sur err.body brut plus bas.
+  }
+
+  // UUID passé en dur mais le serveur ne trouve pas de build : c'est très
+  // probablement un id de DRAFT (non publié), pas un build promotable.
+  if (err.status === 404 && wasRawUuid && (code === 'build_not_found' || !code)) {
+    return (
+      "cet id ressemble à un draft, pas à un build.\n  " +
+      chalk.dim(
+        'Promeus par tag de version (recube promote -b 1.0.60) ou utilise le ' +
+          'build_id de « recube versions list ».'
+      )
+    );
   }
 
   if (err.status === 403) {
@@ -118,19 +132,24 @@ export async function promoteCommand(opts: {
   tenant?: string;
   channel?: string;
   build?: string;
+  version?: string;
 }): Promise<void> {
   if (!opts.tenant) fail('--tenant requis');
   if (!opts.channel) fail('--channel requis');
-  if (!opts.build)
+  // `--version <tag>` est un alias explicite de `-b <tag>` : force le
+  // traitement « tag de version » même si la valeur ressemble à un UUID.
+  const raw = opts.version ?? opts.build;
+  const forceTag = opts.version != null;
+  if (!raw)
     fail(
-      '--build requis (id du build publié à mettre en ligne)\n  ' +
+      '--build requis (id du build OU tag de version à mettre en ligne)\n  ' +
         chalk.dim(
-          `trouve l'UID dans la colonne « id » de : recube versions list ${opts.tenant}` +
+          `ex : recube promote -t ${opts.tenant} -c ${opts.channel ?? '<channel>'} -b 1.0.60\n  ` +
+            `trouve tag + build_id via : recube versions list ${opts.tenant}` +
             (opts.channel ? ` -c ${opts.channel}` : '')
         )
     );
   const tenant = opts.tenant;
-  const buildId = opts.build;
 
   const s = await session();
   // `--channel @me` → la branche perso de l'appelant (dev-{handle}).
@@ -141,6 +160,39 @@ export async function promoteCommand(opts: {
     if (err instanceof NoPersonalBranchError) fail(noBranchHint(tenant));
     throw err;
   }
+
+  // Résolution de la cible : UUID → build_id direct ; sinon tag de version →
+  // on résout le build_id via le listing des versions du tenant/channel.
+  const rawIsUuid = !forceTag && isBuildUuid(raw);
+  let buildId: string;
+  if (rawIsUuid) {
+    buildId = raw.trim();
+  } else {
+    let versions: Version[];
+    try {
+      ({ versions } = await s.api.listVersions(tenant, channel));
+    } catch (err) {
+      fail(explainPromoteError(err, tenant));
+    }
+    const resolved = resolveBuildId(versions, raw);
+    if (resolved.kind === 'not_found') {
+      fail(
+        `version ${chalk.bold(raw.trim())} introuvable sur ${tenant}/${channel} ` +
+          `(voir ${chalk.cyan(`recube versions list ${tenant} -c ${channel}`)})`
+      );
+    }
+    if (resolved.kind === 'no_build_id') {
+      fail(
+        `la version ${chalk.bold(raw.trim())} n'a pas de build promotable ` +
+          `(aucun build_id : build non publié ou fallback sans historique).`
+      );
+    }
+    buildId = resolved.buildId;
+    info(
+      `${chalk.dim('résolu')}  version ${chalk.bold(raw.trim())} → build ${chalk.bold(buildId)}`
+    );
+  }
+
   try {
     info(`${chalk.dim('POST')}  promote ${chalk.bold(buildId)} → ${tenant}/${channel}`);
     const res = await s.api.promote(tenant, channel, buildId);
@@ -154,6 +206,6 @@ export async function promoteCommand(opts: {
     if (res.manifest_sha256) info(`  manifest_sha256: ${res.manifest_sha256}`);
     if (res.promoted_at) info(`  promoted_at     : ${res.promoted_at}`);
   } catch (err) {
-    fail(explainPromoteError(err, tenant));
+    fail(explainPromoteError(err, tenant, rawIsUuid));
   }
 }

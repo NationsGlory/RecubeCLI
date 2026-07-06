@@ -114,6 +114,12 @@ export interface Version {
   note?: string | null;
   created_at?: string;
   files_count?: number;
+  /**
+   * Build promotable de cette version (dep backend GG : le listing expose
+   * désormais le build_id par version). Consommé par `recube promote -b <tag>`
+   * pour résoudre un tag de version → build_id avant le POST promote.
+   */
+  build_id?: string | number | null;
 }
 
 // ── Drafts (mutable build staging, backend commit 0dbfc7f) ───────────────
