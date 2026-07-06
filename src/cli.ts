@@ -394,7 +394,11 @@ core
   .description('Publier un build recube-core sur un channel (token de service rcs_ autorisé = CI)')
   .requiredOption('-t, --tenant <t>', 'slug du tenant (ex : nationsglory)')
   .option('-c, --channel <c>', 'channel cible (@me = ta branche perso)', 'tenant-wide')
-  .requiredOption('-V, --version <v>', 'tag de version (ex : 0.4.0)')
+  // `--version` long collisionne avec le flag global commander (-v, --version,
+  // cf. ligne 237) → `core publish --version X` imprime la version du CLI et
+  // exit 0 (no-op silencieux = release CI cassée qui paraît OK). On mirror la
+  // convention merge/draft-create : `-V, --version-tag`. `-V` court reste libre.
+  .requiredOption('-V, --version-tag <v>', 'tag de version (ex : 0.4.0)')
   .option('--file <path>', 'jar local à uploader (multipart, hash serveur) ; OU --url/--sha256')
   .option('--url <key>', 'clé R2 relative déjà hébergée (ex : recube-core/0.4.0.jar ; PAS une URL absolue)')
   .option('--sha256 <h>', 'sha256 attendu (requis avec --url ; doit correspondre au hash enregistré)')
@@ -402,7 +406,7 @@ core
     async (opts: {
       tenant?: string;
       channel?: string;
-      version?: string;
+      versionTag?: string;
       file?: string;
       url?: string;
       sha256?: string;
@@ -410,7 +414,7 @@ core
       await corePublishCommand({
         tenant: opts.tenant,
         channel: opts.channel,
-        version: opts.version,
+        version: opts.versionTag,
         file: opts.file,
         url: opts.url,
         sha256: opts.sha256,

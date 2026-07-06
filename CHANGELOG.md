@@ -20,6 +20,11 @@
   commander (`-v, --version`), qui l'intercepterait avant le parse.
 - **`recube versions list`** affiche désormais une colonne `build_id` (la valeur
   à passer à `recube promote`).
+- **`recube core publish` — même classe de bug corrigée** : son option
+  `--version` collisionnait aussi avec le flag global commander (`core publish
+  --version X` imprimait la version du CLI et sortait en no-op silencieux = une
+  release CI cassée qui paraît réussie). Renommée `-V, --version-tag` (même
+  convention que `merge` / `draft create`) ; `-V` court inchangé.
 
 ## 0.4.1 — 2026-06-30
 
