@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.7 - 2026-07-06
+
+### Changes
+
+- **`recube draft rm` insensible à la casse** : les chemins des mods gardent
+  leur casse réelle côté backend (ex `mods/CodeChickenLib-universal-1.6.4.jar`,
+  `mods/MicdoodleCore-...jar`). Taper une autre casse (ex `codechickenlib-...`)
+  faisait échouer / no-op silencieux le `rm` (DELETE exact-match). Désormais la
+  cible est résolue contre la file-list RÉELLE du draft (base + overlay) :
+  - match exact (casse) : inchangé (fast path) ;
+  - une seule variante de casse : on retire le chemin réel et on affiche la
+    correction (`casse corrigée : X -> Y`) ;
+  - plusieurs variantes de casse : erreur listant les variantes (demande la
+    casse exacte) ;
+  - introuvable : le chemin est envoyé tel quel (fallback exact-path, un `rm`
+    peut viser un fichier de base hors liste connue), avec un rappel `recube
+    draft diff`.
+
 ## 0.7.6 — 2026-07-06
 
 ### Changes

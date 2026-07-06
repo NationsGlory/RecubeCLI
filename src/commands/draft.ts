@@ -34,6 +34,7 @@ import {
 } from '../lib/draft-state.js';
 import { DraftTargetError, resolveDraftTarget } from '../lib/draft-target.js';
 import { toDraftPath, InvalidDraftPathError } from '../lib/draft-path.js';
+import { resolveRmTarget } from '../lib/draft-rm-resolve.js';
 import { chalk } from '../lib/ui.js';
 import type { AuthenticatedSession } from '../auth/session.js';
 import type { DraftState } from '../types.js';
@@ -554,9 +555,61 @@ export async function draftRmCommand(
   const s = await session();
   refuseServiceTokenForNonAdd(s, 'rm');
   const st = await resolveTargetOrFail(s, opts);
+
+  // Résolution case-insensitive contre les chemins RÉELS du draft : les paths
+  // gardent leur casse d'origine côté backend (ex `mods/CodeChickenLib-…jar`),
+  // et le DELETE est exact-match. On récupère la file-list résolue (base ⊕
+  // overlay) pour retomber sur la bonne casse quand le dev en tape une autre.
+  // rm peut cibler un fichier de BASE (masquage) autant qu'un overlay → la
+  // liste résolue les couvre tous les deux. Best-effort : si la liste est
+  // indisponible, on retombe sur l'envoi exact-path historique (kind none).
+  let candidatePaths: string[] = [];
   try {
-    await s.api.draftFileRemove(st.tenant, st.channel, st.draftId, virtual);
-    ok(`${virtual} retiré du draft ${chalk.bold(st.draftId)}.`);
+    const draft = await s.api.getDraft(st.tenant, st.channel, st.draftId);
+    candidatePaths = (draft.resolved_files ?? []).map((f) => f.path);
+    if (candidatePaths.length === 0) {
+      // Fallback : liste résolue absente → au moins l'overlay via le diff.
+      const d = await s.api.draftDiff(st.tenant, st.channel, st.draftId);
+      candidatePaths = [...(d.added ?? []), ...(d.replaced ?? [])].map((f) => f.path);
+    }
+  } catch {
+    candidatePaths = [];
+  }
+
+  const res = resolveRmTarget(virtual, candidatePaths);
+  let target = virtual;
+  switch (res.kind) {
+    case 'exact':
+      target = res.path;
+      break;
+    case 'ci':
+      target = res.path;
+      info(chalk.dim(`  casse corrigée : ${virtual} -> ${res.path}`));
+      break;
+    case 'ambiguous':
+      fail(
+        `« ${virtual} » correspond à plusieurs fichiers du draft (casse différente) :\n` +
+          res.matches.map((m) => `    ${m}`).join('\n') +
+          '\n  Indique la casse exacte du fichier à retirer.'
+      );
+      break;
+    case 'none':
+      // Pas trouvé dans la liste résolue : soit chemin réellement absent, soit
+      // liste indisponible. On n'échoue PAS (rm peut viser un fichier hors
+      // liste connue) : on envoie le chemin tel quel (fallback exact-path).
+      if (candidatePaths.length > 0) {
+        warn(
+          `« ${virtual} » introuvable dans le draft ${chalk.bold(st.draftId)} ` +
+            '(voir `recube draft diff`) — envoi du chemin tel quel.'
+        );
+      }
+      target = virtual;
+      break;
+  }
+
+  try {
+    await s.api.draftFileRemove(st.tenant, st.channel, st.draftId, target);
+    ok(`${target} retiré du draft ${chalk.bold(st.draftId)}.`);
   } catch (err) {
     fail(explainApiError(err, 'generic'));
   }
