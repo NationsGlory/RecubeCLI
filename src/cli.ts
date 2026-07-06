@@ -27,6 +27,7 @@ import { promoteCommand } from './commands/promote.js';
 import {
   draftCreateCommand,
   draftListCommand,
+  draftUseCommand,
   draftStatusCommand,
   draftAddCommand,
   draftRmCommand,
@@ -71,9 +72,34 @@ const EXAMPLES: Record<string, string[]> = {
     'recube login --scope "launcher:publish launcher:draft profile:read"',
     'recube login --force',
   ],
+  'recube draft use': [
+    '# Sélectionne le draft ouvert du couple tenant/channel comme draft courant.',
+    'recube draft use -t nationsglory -c beta',
+    '# Cible un draft précis (si plusieurs ouverts, ou repo cloné ailleurs).',
+    'recube draft use -t nationsglory -c beta --draft <id>',
+    '# Ensuite, plus besoin des flags :',
+    'recube draft rm mods/vieux-mod.jar',
+    'recube draft publish',
+  ],
+  'recube draft rm': [
+    '# Draft courant (pointeur .recube/draft.json) :',
+    'recube draft rm mods/vieux-mod.jar',
+    "# Ou cible directement le draft ouvert d'un tenant/channel (repo cloné) :",
+    'recube draft rm mods/vieux-mod.jar -t nationsglory -c beta',
+  ],
+  'recube draft status': [
+    'recube draft status',
+    'recube draft status -t nationsglory -c beta',
+  ],
+  'recube draft diff': [
+    'recube draft diff',
+    'recube draft diff -t nationsglory -c beta',
+  ],
   'recube draft publish': [
     '# Par défaut : publie un build DORMANT (scellé/signé, PAS live) — défaut sûr.',
     'recube draft publish -t nationsglory -c beta',
+    '# Cible un draft précis si plusieurs sont ouverts.',
+    'recube draft publish -t nationsglory -c beta --draft <id>',
     '# Raccourci pour les autorisés : publie ET met en ligne dans la foulée.',
     'recube draft publish -t nationsglory -c beta --promote',
   ],
@@ -422,10 +448,23 @@ draft
   });
 
 draft
+  .command('use')
+  .description('Sélectionner le draft courant (le pose dans .recube/draft.json) — les commandes suivantes marchent sans re-spécifier les flags')
+  .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
+  .requiredOption('-c, --channel <name>', 'channel (ex : beta, @me = ta branche perso)')
+  .option('--draft <id>', 'id du draft précis (défaut : le draft ouvert du tenant/channel)')
+  .action(async (opts: { tenant?: string; channel?: string; draft?: string }) => {
+    await draftUseCommand({ tenant: opts.tenant, channel: opts.channel, draft: opts.draft });
+  });
+
+draft
   .command('status')
-  .description('Statut du draft courant (fichiers résolus, base, live bougé)')
-  .action(async () => {
-    await draftStatusCommand();
+  .description('Statut du draft (fichiers résolus, base, live bougé). Draft courant par défaut, ou via -t/-c[/--draft].')
+  .option('-t, --tenant <slug>', 'tenant du draft cible (défaut : draft courant local)')
+  .option('-c, --channel <name>', 'channel du draft cible (@me = ta branche perso)')
+  .option('--draft <id>', 'id du draft précis (avec -t/-c ; défaut : le draft ouvert)')
+  .action(async (opts: { tenant?: string; channel?: string; draft?: string }) => {
+    await draftStatusCommand({ tenant: opts.tenant, channel: opts.channel, draft: opts.draft });
   });
 
 draft
@@ -450,16 +489,22 @@ draft
 
 draft
   .command('rm <path>')
-  .description('Retirer un fichier du draft courant')
-  .action(async (p: string) => {
-    await draftRmCommand(p);
+  .description('Retirer un fichier du draft. Draft courant par défaut, ou via -t/-c[/--draft].')
+  .option('-t, --tenant <slug>', 'tenant du draft cible (défaut : draft courant local)')
+  .option('-c, --channel <name>', 'channel du draft cible (@me = ta branche perso)')
+  .option('--draft <id>', 'id du draft précis (avec -t/-c ; défaut : le draft ouvert)')
+  .action(async (p: string, opts: { tenant?: string; channel?: string; draft?: string }) => {
+    await draftRmCommand(p, { tenant: opts.tenant, channel: opts.channel, draft: opts.draft });
   });
 
 draft
   .command('diff')
-  .description('Diff du draft courant vs sa base (ajoutés/remplacés/retirés)')
-  .action(async () => {
-    await draftDiffCommand();
+  .description('Diff du draft vs sa base (ajoutés/remplacés/retirés). Draft courant par défaut, ou via -t/-c[/--draft].')
+  .option('-t, --tenant <slug>', 'tenant du draft cible (défaut : draft courant local)')
+  .option('-c, --channel <name>', 'channel du draft cible (@me = ta branche perso)')
+  .option('--draft <id>', 'id du draft précis (avec -t/-c ; défaut : le draft ouvert)')
+  .action(async (opts: { tenant?: string; channel?: string; draft?: string }) => {
+    await draftDiffCommand({ tenant: opts.tenant, channel: opts.channel, draft: opts.draft });
   });
 
 draft
@@ -471,13 +516,15 @@ draft
   )
   .option('-t, --tenant <slug>', 'tenant du draft à publier — fetch le draft en cours (défaut : draft courant local)')
   .option('-c, --channel <name>', 'channel du draft à publier (@me = ta branche perso) — fetch le draft en cours (défaut : draft courant local)')
+  .option('--draft <id>', 'id du draft précis à publier (avec -t/-c ; défaut : le draft ouvert)')
   .option('-r, --reference <ref>', 'reference du build (≤ 96 car ; défaut auto : {tenant}-{channel}-{version}-b{ts})')
   .option('-n, --note <note>', 'note/changelog (6 à 2000 car ; défaut généré si absent)')
   .option('-p, --promote', 'met le build en ligne immédiatement après publication (dormant → live ; nécessite le scope+perm de promotion)')
-  .action(async (opts: { tenant?: string; channel?: string; reference?: string; note?: string; promote?: boolean }) => {
+  .action(async (opts: { tenant?: string; channel?: string; draft?: string; reference?: string; note?: string; promote?: boolean }) => {
     await draftPublishCommand({
       tenant: opts.tenant,
       channel: opts.channel,
+      draft: opts.draft,
       reference: opts.reference,
       note: opts.note,
       promote: opts.promote,

@@ -31,6 +31,7 @@ import {
   clearDraftState,
   draftStatePath,
 } from '../lib/draft-state.js';
+import { DraftTargetError, resolveDraftTarget } from '../lib/draft-target.js';
 import { chalk } from '../lib/ui.js';
 import type { AuthenticatedSession } from '../auth/session.js';
 import type { DraftState } from '../types.js';
@@ -160,11 +161,11 @@ async function resolveDraft(opts?: {
   if (st) return st;
   fail(
     'Aucun draft courant.\n  ' +
-      chalk.dim('Dev   : recube draft create --tenant <t> --channel <c>') +
+      chalk.dim('passe -t <tenant> -c <channel>') +
       '\n  ' +
-      chalk.dim(
-        'CI    : --tenant <t> --channel <c> (cible le draft ouvert ; ou --draft <id> pour un draft précis)'
-      )
+      chalk.dim('ou sélectionne : recube draft use -t <tenant> -c <channel>') +
+      '\n  ' +
+      chalk.dim('ou crée : recube draft create -t <tenant> -c <channel>')
   );
 }
 
@@ -174,28 +175,65 @@ async function requireDraft(): Promise<DraftState> {
 }
 
 /**
- * Fetch le draft EN COURS (status `open`) d'un couple tenant/channel via l'API,
- * sans dépendre du pointeur local `.recube/draft.json`. Le serveur n'autorise
- * qu'UN draft ouvert par channel → au plus un résultat. Message clair si aucun
- * draft en cours (au lieu de planter sur "aucun draft courant").
+ * Décore une DraftTargetError (résolution partagée) en message actionnable puis
+ * `fail()`. Le helper `resolveDraftTarget` reste pur (messages neutres, pas de
+ * chalk) — c'est ici qu'on ajoute les hints copiables selon le `code`.
  */
-async function resolveOpenDraft(
-  s: AuthenticatedSession,
-  tenant: string,
-  channel: string
-): Promise<DraftState> {
-  const drafts = await s.api
-    .listDrafts(tenant, channel)
-    .catch((err: unknown): never => fail(explainApiError(err, 'generic')));
-  const open = drafts.filter((d) => d.status === 'open');
-  if (open.length === 0) {
+function failDraftTarget(
+  err: DraftTargetError,
+  opts: { tenant?: string; channel?: string }
+): never {
+  if (err.code === 'no_current') {
     fail(
-      `Aucun draft en cours pour ${chalk.bold(`${tenant}/${channel}`)}.\n  ` +
-        chalk.dim(`Ouvre-en un : recube draft create -t ${tenant} -c ${channel}`)
+      'Aucun draft courant.\n  ' +
+        chalk.dim('passe -t <tenant> -c <channel>') +
+        '\n  ' +
+        chalk.dim('ou sélectionne : recube draft use -t <tenant> -c <channel>') +
+        '\n  ' +
+        chalk.dim('ou crée : recube draft create -t <tenant> -c <channel>')
     );
   }
-  const d = open[0];
-  return { tenant, channel, draftId: d.id, version: d.version_tag };
+  if (err.code === 'no_open') {
+    fail(
+      err.message +
+        '\n  ' +
+        chalk.dim(
+          `Ouvre-en un : recube draft create -t ${opts.tenant ?? '<tenant>'} -c ${
+            opts.channel ?? '<channel>'
+          }`
+        )
+    );
+  }
+  // incomplete_flags / multi_open : le message du helper est déjà actionnable.
+  fail(err.message);
+}
+
+/**
+ * Résolution partagée du draft cible pour rm/diff/status/publish/use.
+ * Ordre : --draft <id> (+ -t/-c) → getDraft ; -t/-c → draft OUVERT (listDrafts) ;
+ * sinon → pointeur local `.recube/draft.json`. Les env RECUBE_TENANT/CHANNEL/
+ * DRAFT_ID servent de défaut (parité avec l'ancien requireDraft + le flux CI).
+ * `@me` est résolu ici (nécessite la session) AVANT de déléguer au helper pur.
+ */
+async function resolveTargetOrFail(
+  s: AuthenticatedSession,
+  opts: { tenant?: string; channel?: string; draft?: string }
+): Promise<DraftState> {
+  const tenant = opts.tenant ?? process.env.RECUBE_TENANT?.trim() ?? undefined;
+  let channel = opts.channel ?? process.env.RECUBE_CHANNEL?.trim() ?? undefined;
+  const draft = opts.draft ?? process.env.RECUBE_DRAFT_ID?.trim() ?? undefined;
+  // `--channel @me` → la branche perso de l'appelant (dev-{handle}). Résolu
+  // seulement si le tenant est connu (sinon le helper renverra incomplete_flags).
+  if (channel && tenant) {
+    channel = await resolveMeChannel(s, tenant, channel);
+  }
+  try {
+    return await resolveDraftTarget(s.api, { tenant, channel, draft }, loadDraftState);
+  } catch (err) {
+    if (err instanceof DraftTargetError) failDraftTarget(err, { tenant, channel });
+    if (err instanceof ApiError) fail(explainApiError(err, 'generic'));
+    throw err;
+  }
 }
 
 /** Référence auto par défaut pour publish (parité avec `recube publish`). */
@@ -354,10 +392,39 @@ export async function draftListCommand(opts: {
   }
 }
 
-export async function draftStatusCommand(): Promise<void> {
-  const st = await requireDraft();
+/**
+ * `recube draft use -t <tenant> -c <channel> [--draft <id>]` — résout le draft
+ * cible (même logique partagée que rm/diff/status/publish) puis le POSE comme
+ * pointeur courant `.recube/draft.json`, pour que les commandes suivantes
+ * fonctionnent sans re-spécifier les flags. Sélecteur explicite (repo cloné,
+ * draft créé ailleurs, pointeur effacé).
+ */
+export async function draftUseCommand(opts: {
+  tenant?: string;
+  channel?: string;
+  draft?: string;
+}): Promise<void> {
+  if (!opts.tenant) fail('-t/--tenant requis');
+  if (!opts.channel) fail('-c/--channel requis');
+  const s = await session();
+  // `use` liste/lit les drafts (getDraft/listDrafts) → interdit au token de service.
+  refuseServiceTokenForNonAdd(s, 'use');
+  const st = await resolveTargetOrFail(s, opts);
+  await saveDraftState(st);
+  ok(
+    `draft courant = ${chalk.bold(st.draftId)} (${st.tenant}/${st.channel}${
+      st.version ? `, ${st.version}` : ''
+    })`
+  );
+  info(`  tracké dans ${chalk.dim(draftStatePath())}`);
+}
+
+export async function draftStatusCommand(
+  opts: { tenant?: string; channel?: string; draft?: string } = {}
+): Promise<void> {
   const s = await session();
   refuseServiceTokenForNonAdd(s, 'status');
+  const st = await resolveTargetOrFail(s, opts);
   try {
     const d = await s.api.getDraft(st.tenant, st.channel, st.draftId);
     info(`Draft ${chalk.bold(d.id)}  (${st.tenant}/${st.channel})`);
@@ -452,11 +519,14 @@ export async function draftAddCommand(
   }
 }
 
-export async function draftRmCommand(targetPath: string): Promise<void> {
-  const st = await requireDraft();
+export async function draftRmCommand(
+  targetPath: string,
+  opts: { tenant?: string; channel?: string; draft?: string } = {}
+): Promise<void> {
   const virtual = targetPath.split(path.sep).join('/');
   const s = await session();
   refuseServiceTokenForNonAdd(s, 'rm');
+  const st = await resolveTargetOrFail(s, opts);
   try {
     await s.api.draftFileRemove(st.tenant, st.channel, st.draftId, virtual);
     ok(`${virtual} retiré du draft ${chalk.bold(st.draftId)}.`);
@@ -465,10 +535,12 @@ export async function draftRmCommand(targetPath: string): Promise<void> {
   }
 }
 
-export async function draftDiffCommand(): Promise<void> {
-  const st = await requireDraft();
+export async function draftDiffCommand(
+  opts: { tenant?: string; channel?: string; draft?: string } = {}
+): Promise<void> {
   const s = await session();
   refuseServiceTokenForNonAdd(s, 'diff');
+  const st = await resolveTargetOrFail(s, opts);
   try {
     const d = await s.api.draftDiff(st.tenant, st.channel, st.draftId);
     const added = d.added ?? [];
@@ -502,6 +574,7 @@ export async function draftDiffCommand(): Promise<void> {
 export async function draftPublishCommand(opts: {
   tenant?: string;
   channel?: string;
+  draft?: string;
   reference?: string;
   note?: string;
   promote?: boolean;
@@ -509,20 +582,14 @@ export async function draftPublishCommand(opts: {
   const s = await session();
   refuseServiceTokenForNonAdd(s, 'publish');
 
-  // Résolution du draft à publier :
-  //  - tenant + channel fournis → on fetch le draft EN COURS du couple (serveur),
-  //    plus besoin du pointeur local ni de connaître l'ID du draft.
-  //  - aucun des deux → pointeur local .recube/draft.json (flux dev habituel).
-  let st: DraftState;
-  if (opts.tenant && opts.channel) {
-    // `--channel @me` → la branche perso de l'appelant (dev-{handle}).
-    const channel = await resolveMeChannel(s, opts.tenant, opts.channel);
-    st = await resolveOpenDraft(s, opts.tenant, channel);
-  } else if (opts.tenant || opts.channel) {
-    fail('Précise --tenant ET --channel ensemble (ou aucun des deux pour cibler le draft courant local).');
-  } else {
-    st = await requireDraft();
-  }
+  // Résolution du draft à publier (logique partagée avec rm/diff/status/use) :
+  //  - --draft <id> (+ -t/-c) → getDraft ; -t/-c → draft EN COURS (listDrafts) ;
+  //  - aucun flag → pointeur local .recube/draft.json (flux dev habituel).
+  const st = await resolveTargetOrFail(s, {
+    tenant: opts.tenant,
+    channel: opts.channel,
+    draft: opts.draft,
+  });
 
   // reference : auto-défaut (parité avec `recube publish`) si absente.
   const reference = opts.reference ?? defaultDraftReference(st);
