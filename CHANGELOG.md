@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.8 - 2026-07-06
+
+### Fixes
+
+- **`recube channels list <tenant>` : colonnes name/label vides + public=`no`
+  faux corrigés.** Le listing lit d'abord `/games/{slug}/branches` qui émet
+  `{ channel, latest_version, permission_slug, tag, tag_color }` (clé du nom =
+  `channel`, version = `latest_version`), alors que le formatter lisait
+  `name`/`label`/`is_public`/`versions_count` (tous absents) : chaque ligne
+  ressortait avec name/label vides, public=`no` trompeur, versions=`-`.
+  `formatChannelRow` tolère désormais les DEUX shapes (`/games/{slug}/branches`
+  et `/launcher/channels` = `{ slug, name, permission_slug, is_default }`) :
+  - name = `slug` puis `channel` puis `name` (le slug machine, pas le libellé) ;
+  - label = `label` puis `tag` puis `name` (libellé / badge) ;
+  - public = `is_public` si présent, sinon dérivé de `permission_slug`
+    (null/vide = public), sinon `-` (jamais un `no` trompeur) ;
+  - la colonne `versions` est renommée `latest` et peuplée depuis
+    `latest_version` (les deux endpoints ne renvoient pas de count).
+  Les champs absents rendent `-`, jamais `undefined`/vide.
+
 ## 0.7.7 - 2026-07-06
 
 ### Changes

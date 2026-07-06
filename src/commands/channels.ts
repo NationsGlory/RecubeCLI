@@ -38,7 +38,7 @@ export async function channelsListCommand(tenant: string): Promise<void> {
   }
 
   const rows = channels.map(formatChannelRow);
-  const header = `${'name'.padEnd(20)} ${'label'.padEnd(24)} ${'public'.padEnd(8)} ${'versions'.padEnd(8)}`;
+  const header = `${'name'.padEnd(20)} ${'label'.padEnd(24)} ${'public'.padEnd(8)} ${'latest'.padEnd(8)}`;
   ui.note([chalk.dim(header), ...rows].join('\n'), `channels (${tenant})`);
 }
 
@@ -91,10 +91,36 @@ export async function channelsCreateCommand(tenant: string): Promise<void> {
   }
 }
 
-function formatChannelRow(c: Channel): string {
-  const name = (c.name ?? '').padEnd(20);
-  const label = (c.label ?? '').padEnd(24);
-  const pub = (c.is_public ? 'yes' : 'no').padEnd(8);
-  const versions = String(c.versions_count ?? '-').padEnd(8);
-  return `${name} ${label} ${pub} ${versions}`;
+/**
+ * Renders one channel row, tolerant of the TWO backend shapes (cf. Channel type) :
+ *   - /launcher/channels  → { slug, name (display), permission_slug, is_default }
+ *   - /games/{slug}/branches → { channel, latest_version, permission_slug, tag }
+ *
+ * Machine name  : slug ?? channel ?? name (the value a dev feeds to `-c`).
+ * Label         : label ?? tag ?? name (display / badge, never the slug).
+ * Public        : from is_public if present, else derived from permission_slug
+ *                 (null/'' = public). Absent on both → `-` (never a misleading `no`).
+ * Latest        : versions_count ?? latest_version ?? `-`.
+ * Missing fields always render `-`, never `undefined`/empty.
+ *
+ * Exported for pure unit testing (channels-row-format.test.ts).
+ */
+export function formatChannelRow(c: Channel): string {
+  const name = String(c.slug ?? c.channel ?? c.name ?? '-').padEnd(20);
+  const label = String(c.label ?? c.tag ?? c.name ?? '-').padEnd(24);
+  const pub = formatChannelPublic(c).padEnd(8);
+  const latest = String(c.versions_count ?? c.latest_version ?? '-').padEnd(8);
+  return `${name} ${label} ${pub} ${latest}`;
+}
+
+/**
+ * `yes` / `no` / `-`. Prefers an explicit `is_public` boolean ; otherwise reads
+ * `permission_slug` (both real endpoints expose it : null/'' = public, a slug =
+ * gated). Neither present → `-` (branches without permission_slug), so we never
+ * print a misleading `no` for a channel whose visibility we simply don't know.
+ */
+function formatChannelPublic(c: Channel): string {
+  if (c.is_public !== undefined) return c.is_public ? 'yes' : 'no';
+  if (c.permission_slug !== undefined) return c.permission_slug ? 'no' : 'yes';
+  return '-';
 }

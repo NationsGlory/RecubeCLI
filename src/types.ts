@@ -98,6 +98,21 @@ export interface Channel {
   description?: string | null;
   // Versions count may be exposed under different keys — keep loose.
   versions_count?: number;
+  // ── Shape variants tolerated by formatChannelRow ─────────────────────
+  // Two backend endpoints feed the channel list with DIFFERENT keys :
+  //   - GET /launcher/channels (LauncherChannelsController::serializePublic)
+  //     → { id, slug, name (display), permission_slug, sort_order, is_default }
+  //   - GET /games/{slug}/branches (GameVersionsController::branches)
+  //     → { channel, latest_version, permission_slug, tag, tag_color }
+  // Neither exposes is_public / versions_count. Public is derived from
+  // permission_slug (null/'' = public). These optional fields keep the row
+  // formatter type-clean (no `as any`).
+  slug?: string;
+  channel?: string;
+  latest_version?: string;
+  tag?: string | null;
+  tag_color?: string | null;
+  permission_slug?: string | null;
 }
 
 export interface Game {
