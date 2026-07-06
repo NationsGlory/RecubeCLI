@@ -5,6 +5,29 @@
 import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
 import { NoPersonalBranchError, noBranchHint, resolveChannelAlias } from '../lib/branch.js';
 import { ui, chalk } from '../lib/ui.js';
+import type { Version } from '../types.js';
+
+/**
+ * Pure formatter for the versions table. The build `id` (UID) leads each row
+ * À DESSEIN : c'est la valeur que le dev passe à `recube promote -b <buildId>`.
+ * Sans elle, impossible de savoir quel build promouvoir. Renvoie `header` +
+ * `rows` séparés pour que l'appelant puisse dimmer le header (chalk) sans
+ * polluer la sortie testable.
+ */
+export function buildVersionsTable(versions: Version[]): { header: string; rows: string[] } {
+  const header =
+    `${'id'.padEnd(26)} ${'version'.padEnd(14)} ${'channel'.padEnd(10)} ` +
+    `${'reference'.padEnd(24)} ${'created_at'.padEnd(20)}`;
+  const rows = versions.map((v) => {
+    const id = String(v.id ?? '').padEnd(26);
+    const ver = String(v.version ?? '').padEnd(14);
+    const ch = String(v.channel ?? '').padEnd(10);
+    const ref = String(v.reference ?? '').padEnd(24);
+    const created = String(v.created_at ?? '').padEnd(20);
+    return `${id} ${ver} ${ch} ${ref} ${created}`;
+  });
+  return { header, rows };
+}
 
 export async function versionsListCommand(
   tenant: string,
@@ -49,14 +72,7 @@ export async function versionsListCommand(
     return;
   }
 
-  const header = `${'version'.padEnd(16)} ${'channel'.padEnd(12)} ${'reference'.padEnd(32)} ${'created_at'.padEnd(20)}`;
-  const rows = versions.map((v) => {
-    const ver = String(v.version ?? '').padEnd(16);
-    const ch = String(v.channel ?? '').padEnd(12);
-    const ref = String(v.reference ?? '').padEnd(32);
-    const created = String(v.created_at ?? '').padEnd(20);
-    return `${ver} ${ch} ${ref} ${created}`;
-  });
+  const { header, rows } = buildVersionsTable(versions);
   const note = adminDenied
     ? `${chalk.yellow('admin scope denied')} — fallback affiche dernière version par channel uniquement.`
     : '';

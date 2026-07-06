@@ -111,7 +111,14 @@ export async function promoteCommand(opts: {
 }): Promise<void> {
   if (!opts.tenant) fail('--tenant requis');
   if (!opts.channel) fail('--channel requis');
-  if (!opts.build) fail('--build requis (id du build publié à mettre en ligne)');
+  if (!opts.build)
+    fail(
+      '--build requis (id du build publié à mettre en ligne)\n  ' +
+        chalk.dim(
+          `trouve l'UID dans la colonne « id » de : recube versions list ${opts.tenant}` +
+            (opts.channel ? ` -c ${opts.channel}` : '')
+        )
+    );
   const tenant = opts.tenant;
   const buildId = opts.build;
 
