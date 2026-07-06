@@ -27,6 +27,7 @@ import { getAuthenticatedSession, NotLoggedInError } from '../auth/session.js';
 import { getStoredUser } from '../auth/store.js';
 import { ApiError } from '../lib/api.js';
 import { noBranchHint } from '../lib/branch.js';
+import { toDraftPath, InvalidDraftPathError } from '../lib/draft-path.js';
 import { hashFile } from '../lib/publish-pipeline.js';
 import { chalk } from '../lib/ui.js';
 import type { AuthenticatedSession } from '../auth/session.js';
@@ -48,6 +49,20 @@ function info(msg: string): void {
 
 function warn(msg: string): void {
   console.log(chalk.yellow('⚠ ') + msg);
+}
+
+/**
+ * Normalise un chemin utilisateur en chemin relatif POSIX (backend SafeBuildPath)
+ * ou `fail()` AVANT tout appel réseau. Même helper pur que draft add/rm — les
+ * overlays partagent la même classe de validation de chemin côté serveur.
+ */
+function normalizeOverlayPathOrFail(input: string): string {
+  try {
+    return toDraftPath(input);
+  } catch (err) {
+    if (err instanceof InvalidDraftPathError) fail(err.message);
+    throw err;
+  }
 }
 
 async function session(): Promise<AuthenticatedSession> {
@@ -226,8 +241,8 @@ export async function branchOverlayAddCommand(
 
   // Default virtual path = basename at the branch root (no `mods/` prefix
   // assumption like draft add — overlay paths mirror the FULL build tree,
-  // not just mods). Normalize to POSIX separators.
-  const virtual = (opts.path ?? path.basename(abs)).split(path.sep).join('/');
+  // not just mods). Normalise en chemin relatif POSIX (backend SafeBuildPath).
+  const virtual = normalizeOverlayPathOrFail(opts.path ?? path.basename(abs));
 
   const { sha256, size } = await hashFile(abs);
   if (!/^[0-9a-f]{64}$/.test(sha256)) fail(`sha256 inattendu pour ${abs}`);
@@ -286,7 +301,7 @@ export async function branchOverlayRmCommand(
 ): Promise<void> {
   if (!opts.tenant) fail('--tenant requis');
   const tenant = opts.tenant;
-  const virtual = targetPath.split(path.sep).join('/');
+  const virtual = normalizeOverlayPathOrFail(targetPath);
 
   const s = await session();
   try {

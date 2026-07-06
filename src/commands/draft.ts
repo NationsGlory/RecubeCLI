@@ -32,6 +32,7 @@ import {
   draftStatePath,
 } from '../lib/draft-state.js';
 import { DraftTargetError, resolveDraftTarget } from '../lib/draft-target.js';
+import { toDraftPath, InvalidDraftPathError } from '../lib/draft-path.js';
 import { chalk } from '../lib/ui.js';
 import type { AuthenticatedSession } from '../auth/session.js';
 import type { DraftState } from '../types.js';
@@ -53,6 +54,20 @@ function info(msg: string): void {
 
 function warn(msg: string): void {
   console.log(chalk.yellow('⚠ ') + msg);
+}
+
+/**
+ * Normalise un chemin utilisateur en chemin relatif POSIX (backend SafeBuildPath)
+ * ou `fail()` AVANT tout appel réseau avec un message actionnable. Centralise le
+ * try/catch autour du helper pur `toDraftPath`.
+ */
+function normalizeDraftPathOrFail(input: string): string {
+  try {
+    return toDraftPath(input);
+  } catch (err) {
+    if (err instanceof InvalidDraftPathError) fail(err.message);
+    throw err;
+  }
 }
 
 async function session(): Promise<AuthenticatedSession> {
@@ -467,8 +482,9 @@ export async function draftAddCommand(
   const fstat = await stat(abs).catch(() => null);
   if (!fstat || !fstat.isFile()) fail(`pas un fichier : ${abs}`);
 
-  // Default virtual path = mods/<basename> ; normalize to POSIX separators.
-  const virtual = (opts.path ?? `mods/${path.basename(abs)}`).split(path.sep).join('/');
+  // Default virtual path = mods/<basename> ; normalise en chemin relatif POSIX
+  // (backend SafeBuildPath) — fail côté client si invalide (.. / absolu / etc.).
+  const virtual = normalizeDraftPathOrFail(opts.path ?? `mods/${path.basename(abs)}`);
 
   const { sha256, size } = await hashFile(abs);
   if (!/^[0-9a-f]{64}$/.test(sha256)) fail(`sha256 inattendu pour ${abs}`);
@@ -523,7 +539,9 @@ export async function draftRmCommand(
   targetPath: string,
   opts: { tenant?: string; channel?: string; draft?: string } = {}
 ): Promise<void> {
-  const virtual = targetPath.split(path.sep).join('/');
+  // Normalise en chemin relatif POSIX (backend SafeBuildPath) — fail côté
+  // client AVANT tout appel réseau si le chemin est invalide (.. / absolu / etc.).
+  const virtual = normalizeDraftPathOrFail(targetPath);
   const s = await session();
   refuseServiceTokenForNonAdd(s, 'rm');
   const st = await resolveTargetOrFail(s, opts);
