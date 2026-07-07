@@ -391,9 +391,12 @@ const core = program
 
 core
   .command('publish')
-  .description('Publier un build recube-core sur un channel (token de service rcs_ autorisé = CI)')
+  .description('Publier un build recube-core pour un tenant (ISO — token de service rcs_ autorisé = CI)')
   .requiredOption('-t, --tenant <t>', 'slug du tenant (ex : nationsglory)')
-  .option('-c, --channel <c>', 'channel cible (@me = ta branche perso)', 'tenant-wide')
+  .option(
+    '-c, --channel <c>',
+    '[déprécié] ignoré — recube-core est désormais publié ISO par tenant (une seule version pour toutes les branches)'
+  )
   // `--version` long collisionne avec le flag global commander (-v, --version,
   // cf. ligne 237) → `core publish --version X` imprime la version du CLI et
   // exit 0 (no-op silencieux = release CI cassée qui paraît OK). On mirror la

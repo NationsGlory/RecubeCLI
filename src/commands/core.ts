@@ -1,14 +1,22 @@
 /**
- * `recube core *` — publish / inspect the recube-core anti-cheat agent jar for
- * a launcher channel.
+ * `recube core *` — publish / inspect the recube-core anti-cheat agent jar.
  *
  *   POST /api/v1/launcher/{tenant}/{channel}/core/publish      (core publish)
  *   GET  /api/v1/launcher/{tenant}/{channel}/recube-core/latest (core list)
  *
+ * `core publish` is ISO PER TENANT (2026-07-08) : the backend writes ONE
+ * canonical tenant-wide key regardless of the `{channel}` route segment (the
+ * server ignores it for storage — kept in the URL only for backward
+ * compatibility with the route shape). `-c/--channel` on `publish` is
+ * therefore DEPRECATED : accepted (so old scripts don't break), but ignored —
+ * a warning is printed and the publish always targets the tenant-wide core.
+ * `core list` is unaffected by this change (still per-channel lookup / alias
+ * resolution, unchanged).
+ *
  * Unlike `recube draft *`, the SERVICE TOKEN (RECUBE_TOKEN=rcs_…) is ALLOWED on
  * `core publish` — this is the intended CI path (RecubeCore CI registers a hash
- * via the internal API, then a release pipeline publishes the signed jar to a
- * channel). We therefore do NOT call refuseServiceTokenForNonAdd here.
+ * via the internal API, then a release pipeline publishes the signed jar).
+ * We therefore do NOT call refuseServiceTokenForNonAdd here.
  *
  * publish accepts either:
  *   --file <path>                 → multipart upload of a LOCAL jar (server
@@ -44,6 +52,10 @@ function fail(msg: string): never {
 
 function ok(msg: string): void {
   console.log(chalk.green('✔ ') + msg);
+}
+
+function warn(msg: string): void {
+  console.error(chalk.yellow('⚠ ') + msg);
 }
 
 function info(msg: string): void {
@@ -153,15 +165,17 @@ export async function corePublishCommand(opts: {
   }
 
   const s = await session();
-  // `--channel @me` → la branche perso de l'appelant (dev-{handle}). Défaut
-  // inchangé : 'tenant-wide' quand --channel est omis.
-  let channel = opts.channel ?? 'tenant-wide';
-  try {
-    channel = await resolveChannelAlias(s.api, tenant, channel);
-  } catch (err) {
-    if (err instanceof NoPersonalBranchError) fail(noBranchHint(tenant));
-    throw err;
+  // ISO par tenant (2026-07-08) : le serveur écrit UNE clé canonique
+  // tenant-wide, le `{channel}` de la route est ignoré pour le storage.
+  // `-c/--channel` est donc déprécié ici : accepté (compat scripts CI
+  // existants) mais ignoré — publish cible toujours le tenant entier.
+  if (opts.channel) {
+    warn(
+      `--channel est déprécié — recube-core est désormais ISO par tenant ` +
+        `(valeur '${opts.channel}' ignorée, publish tenant-wide).`
+    );
   }
+  const channel = 'tenant-wide';
   try {
     if (opts.file) {
       const abs = path.resolve(opts.file);
@@ -171,7 +185,7 @@ export async function corePublishCommand(opts: {
       if (!/^[0-9a-f]{64}$/.test(sha256)) fail(`sha256 inattendu pour ${abs}`);
       info(`${chalk.dim('hash')}  ${path.basename(abs)}  ${sha256.slice(0, 12)}…  ${size} B`);
       info(`${chalk.dim('POST')}  upload multipart → ${tenant}/${channel} (v${version})`);
-      const res = await s.api.corePublishFile(tenant, channel, {
+      const res = await s.api.corePublishFile(tenant, {
         version,
         filePath: abs,
         fileName: path.basename(abs),
@@ -182,7 +196,7 @@ export async function corePublishCommand(opts: {
       if (res.url) info(`  url    : ${String(res.url)}`);
     } else {
       info(`${chalk.dim('POST')}  ${tenant}/${channel} (v${version}) ← ${opts.url}`);
-      const res = await s.api.corePublishByUrl(tenant, channel, {
+      const res = await s.api.corePublishByUrl(tenant, {
         version,
         url: opts.url as string,
         sha256: opts.sha256 as string,

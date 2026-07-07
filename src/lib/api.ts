@@ -209,6 +209,16 @@ export class RecubeApiClient {
   }
 
   /**
+   * recube-core publish is ISO PER TENANT (2026-07-08) : the server writes ONE
+   * canonical tenant-wide key and ignores the `{channel}` route segment for
+   * storage. `corePublishByUrl`/`corePublishFile` therefore do NOT take a
+   * `channel` parameter — they always target this fixed segment, so callers
+   * can't accidentally publish to a real branch. `core list` (`coreLatest`)
+   * is unaffected and keeps a real `channel` argument.
+   */
+  private static readonly CORE_PUBLISH_CHANNEL = 'tenant-wide';
+
+  /**
    * Publish a recube-core build by referencing an object ALREADY HOSTED in R2,
    * passed as a RELATIVE R2 KEY (e.g. `recube-core/0.4.0.jar`). The server does
    * NOT fetch the URL and does NOT re-verify the sha256 against fetched bytes —
@@ -220,11 +230,10 @@ export class RecubeApiClient {
    */
   async corePublishByUrl(
     tenant: string,
-    channel: string,
     payload: { version: string; url: string; sha256: string }
   ): Promise<{ [k: string]: unknown }> {
     const d = await this.post<{ data?: Record<string, unknown> } & Record<string, unknown>>(
-      `${this.launcherBase(tenant, channel)}/core/publish`,
+      `${this.launcherBase(tenant, RecubeApiClient.CORE_PUBLISH_CHANNEL)}/core/publish`,
       payload
     );
     return (d?.data ?? d ?? {}) as { [k: string]: unknown };
@@ -237,7 +246,6 @@ export class RecubeApiClient {
    */
   async corePublishFile(
     tenant: string,
-    channel: string,
     payload: { version: string; filePath: string; fileName?: string; sha256?: string }
   ): Promise<{ [k: string]: unknown }> {
     const { createReadStream } = await import('node:fs');
@@ -264,12 +272,15 @@ export class RecubeApiClient {
     const blob = new Blob([Buffer.concat(chunks)], { type: 'application/java-archive' });
     form.set('file', blob, fileName);
 
-    const res = await fetch(this.url(`${this.launcherBase(tenant, channel)}/core/publish`), {
-      method: 'POST',
-      // NB: do NOT set Content-Type — fetch derives the multipart boundary.
-      headers: this.headers(),
-      body: form,
-    });
+    const res = await fetch(
+      this.url(`${this.launcherBase(tenant, RecubeApiClient.CORE_PUBLISH_CHANNEL)}/core/publish`),
+      {
+        method: 'POST',
+        // NB: do NOT set Content-Type — fetch derives the multipart boundary.
+        headers: this.headers(),
+        body: form,
+      }
+    );
     const out = await this.parse<{ data?: Record<string, unknown> } & Record<string, unknown>>(
       res
     );
