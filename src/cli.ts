@@ -10,6 +10,7 @@ import { Command, Help } from 'commander';
 import { VERSION } from './version.js';
 import { isAuthenticated, isPublicInvocation, runAuthGate } from './auth/gate.js';
 import { printHome, welcomeBox, buildAuthLine } from './ui/home.js';
+import { checkForUpdate, type UpdateNotice } from './lib/update-check.js';
 import { theme } from './ui/theme.js';
 import { completionCommand } from './commands/completion.js';
 import { loginCommand } from './commands/login.js';
@@ -53,6 +54,7 @@ const DOC_URL = 'https://recube.gg/developers';
 // Pré-calculé dans main() avant parseAsync car le help de commander est sync
 // alors que la lecture du user est async.
 let helpAuthLine: string | undefined;
+let helpUpdateNotice: UpdateNotice | null | undefined;
 
 // Exemples par commande, rendus dans le help custom (style page d'accueil).
 const EXAMPLES: Record<string, string[]> = {
@@ -166,7 +168,7 @@ function fullName(cmd: Command): string {
  */
 function formatHelp(cmd: Command, helper: Help): string {
   const t = theme;
-  const out: string[] = ['', welcomeBox(helpAuthLine), ''];
+  const out: string[] = ['', welcomeBox(helpAuthLine, helpUpdateNotice), ''];
 
   out.push(`  ${t.title('Usage')}`, `     ${t.command(helper.commandUsage(cmd))}`, '');
 
@@ -742,7 +744,7 @@ async function main(): Promise<void> {
   // Header des --help = box d'accueil avec statut d'auth. La ligne d'auth est
   // async (cache local) → on la pré-calcule ici (le help de commander est sync).
   if (process.argv.some((a) => a === '-h' || a === '--help' || a === 'help')) {
-    helpAuthLine = await buildAuthLine();
+    [helpAuthLine, helpUpdateNotice] = await Promise.all([buildAuthLine(), checkForUpdate()]);
   }
   await program.parseAsync(process.argv);
 }

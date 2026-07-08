@@ -13,6 +13,7 @@ import { compactCubeLines } from './banner.js';
 import { box } from './box.js';
 import { theme } from './theme.js';
 import { getStoredUser } from '../auth/store.js';
+import { checkForUpdate, type UpdateNotice } from '../lib/update-check.js';
 
 const DOC_URL = 'https://recube.gg/developers';
 
@@ -20,7 +21,7 @@ const DOC_URL = 'https://recube.gg/developers';
  * Boîte d'accueil arrondie : cube compact à gauche, marque + tagline + statut
  * d'auth à droite. Style « ✻ Welcome to Claude Code » adapté recube.
  */
-export function welcomeBox(authLine?: string): string {
+export function welcomeBox(authLine?: string, updateNotice?: UpdateNotice | null): string {
   const t = theme;
   const cube = compactCubeLines();
   // Texte à droite du cube — aligné sur la hauteur du cube (3 lignes) + marque.
@@ -29,6 +30,11 @@ export function welcomeBox(authLine?: string): string {
     t.dim('Publie des builds de jeu — auth OAuth, drafts, channels.'),
   ];
   if (authLine) right.push(authLine);
+  if (updateNotice) {
+    right.push(
+      `${t.warn('↑')} ${t.dim('mise à jour dispo :')} ${t.accent(updateNotice.latestVersion)} ${t.dim('—')} ${t.command('recube update')}`
+    );
+  }
   // Compose côte à côte : cube (col gauche) + texte (col droite), padding entre.
   const rows: string[] = [];
   const cubeH = cube.length;
@@ -63,11 +69,11 @@ export async function buildAuthLine(): Promise<string> {
 
 export async function printHome(): Promise<void> {
   const t = theme;
-  const authLine = await buildAuthLine();
+  const [authLine, updateNotice] = await Promise.all([buildAuthLine(), checkForUpdate()]);
 
   const lines: string[] = [
     '',
-    welcomeBox(authLine),
+    welcomeBox(authLine, updateNotice),
     '',
     t.title('  Pour démarrer'),
     '',

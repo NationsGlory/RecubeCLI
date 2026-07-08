@@ -89,9 +89,10 @@ export interface LatestRelease {
   version: string;
 }
 
-export async function fetchLatestRelease(repo: string = REPO): Promise<LatestRelease> {
+export async function fetchLatestRelease(repo: string = REPO, signal?: AbortSignal): Promise<LatestRelease> {
   const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'recube-cli' },
+    signal,
   });
   if (!res.ok) {
     throw new Error(`GitHub API ${res.status} en résolvant la dernière release de ${repo}.`);
