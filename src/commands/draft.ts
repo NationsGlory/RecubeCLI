@@ -669,11 +669,12 @@ function formatSize(bytes: number): string {
 }
 
 export async function draftFilesCommand(
-  opts: { tenant?: string; channel?: string; draft?: string } = {}
+  opts: { tenant?: string; channel?: string; draft?: string; all?: boolean } = {}
 ): Promise<void> {
   const s = await session();
   refuseServiceTokenForNonAdd(s, 'files');
   const st = await resolveTargetOrFail(s, opts);
+  const overlayOnly = !opts.all;
 
   try {
     let page = 1;
@@ -682,7 +683,7 @@ export async function draftFilesCommand(
     const rows: string[] = [];
 
     do {
-      const res = await s.api.draftFilesFlat(st.tenant, st.channel, st.draftId, page, 200);
+      const res = await s.api.draftFilesFlat(st.tenant, st.channel, st.draftId, page, 200, overlayOnly);
       total = res.total;
       totalPages = res.total_pages;
       for (const f of res.files) {
@@ -697,13 +698,22 @@ export async function draftFilesCommand(
       page++;
     } while (page <= totalPages);
 
-    info(`Fichiers du draft ${chalk.bold(st.draftId)} (${total} au total) :`);
+    const label = overlayOnly
+      ? `Fichiers ajoutés/remplacés/retirés dans le draft ${chalk.bold(st.draftId)} (${total}) :`
+      : `Fichiers du draft ${chalk.bold(st.draftId)} (${total} au total, base + overlay) :`;
+    info(label);
     for (const r of rows) info(r);
+    if (rows.length === 0) {
+      info(chalk.dim('  (aucun fichier ajouté/remplacé/retiré — draft vide ou base non modifiée)'));
+    }
     info(
       chalk.dim(
         '  + ajouté  ~ remplacé  = hérité (base)  - retiré | taille · sha (10) · chemin · métadonnée d\'upload'
       )
     );
+    if (overlayOnly) {
+      info(chalk.dim('  --all pour voir aussi les fichiers hérités du base (build résolu complet).'));
+    }
   } catch (err) {
     fail(explainApiError(err, 'generic'));
   }

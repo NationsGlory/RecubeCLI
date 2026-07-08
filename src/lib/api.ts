@@ -170,19 +170,24 @@ export class RecubeApiClient {
   }
 
   /**
-   * Liste PLATE paginée de tout le build résolu du draft (base ⊕ overlay),
-   * sans filtre — `?flat=1` (cf. RecubeGG DraftBuildsController::listFiles).
-   * Sert `recube draft files`. Le CLI pagine lui-même si `total_pages > 1`.
+   * Liste PLATE paginée du build résolu du draft (base ⊕ overlay) — `?flat=1`
+   * (cf. RecubeGG DraftBuildsController::listFiles). `overlayOnly` (défaut
+   * true) filtre aux seuls fichiers ajoutés/remplacés/retirés PAR CE draft
+   * (masque les ~2849 fichiers hérités du base jamais touchés) — sinon `recube
+   * draft files` listait TOUT le build résolu au lieu du contenu du draft
+   * (bug rapporté 2026-07-08). Sert `recube draft files`. Le CLI pagine
+   * lui-même si `total_pages > 1`.
    */
   async draftFilesFlat(
     tenant: string,
     channel: string,
     draftId: string,
     page: number = 1,
-    perPage: number = 200
+    perPage: number = 200,
+    overlayOnly: boolean = true
   ): Promise<DraftFilesFlatResult> {
     const d = await this.get<{ data?: DraftFilesFlatResult } & DraftFilesFlatResult>(
-      `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}/files?flat=1&page=${page}&per_page=${perPage}`
+      `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}/files?flat=1&page=${page}&per_page=${perPage}&overlay_only=${overlayOnly ? 1 : 0}`
     );
     return (d.data ?? d) as DraftFilesFlatResult;
   }

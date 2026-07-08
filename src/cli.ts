@@ -102,6 +102,8 @@ const EXAMPLES: Record<string, string[]> = {
   'recube draft files': [
     'recube draft files',
     'recube draft files -t nationsglory -c beta',
+    '# Build résolu complet (base ⊕ overlay), pas juste ce que CE draft a touché :',
+    'recube draft files --all',
   ],
   'recube draft publish': [
     '# Par défaut : publie un build DORMANT (scellé/signé, PAS live) — défaut sûr.',
@@ -552,15 +554,16 @@ draft
 draft
   .command('files')
   .description(
-    'Liste tout le contenu résolu du draft (base ⊕ overlay) : taille, sha, origine ' +
-      '(hérité/ajouté/remplacé/retiré), et pour les fichiers touchés par CE draft, date ' +
-      'et auteur de l\'upload. Draft courant par défaut, ou via -t/-c[/--draft].'
+    'Liste les fichiers ajoutés/remplacés/retirés PAR ce draft : taille, sha, origine, ' +
+      'date et auteur de l\'upload. --all pour voir aussi le build résolu complet ' +
+      '(base ⊕ overlay). Draft courant par défaut, ou via -t/-c[/--draft].'
   )
   .option('-t, --tenant <slug>', 'tenant du draft cible (défaut : draft courant local)')
   .option('-c, --channel <name>', 'channel du draft cible (@me = ta branche perso)')
   .option('--draft <id>', 'id du draft précis (avec -t/-c ; défaut : le draft ouvert)')
-  .action(async (opts: { tenant?: string; channel?: string; draft?: string }) => {
-    await draftFilesCommand({ tenant: opts.tenant, channel: opts.channel, draft: opts.draft });
+  .option('--all', 'inclure aussi les fichiers hérités du base jamais touchés par ce draft')
+  .action(async (opts: { tenant?: string; channel?: string; draft?: string; all?: boolean }) => {
+    await draftFilesCommand({ tenant: opts.tenant, channel: opts.channel, draft: opts.draft, all: opts.all });
   });
 
 draft
