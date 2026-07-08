@@ -15,6 +15,7 @@ import { completionCommand } from './commands/completion.js';
 import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
 import { whoamiCommand } from './commands/whoami.js';
+import { updateCommand } from './commands/update.js';
 import { publishCommand } from './commands/publish.js';
 import {
   channelsCreateCommand,
@@ -264,6 +265,17 @@ program
   .description("Afficher l'identité courante")
   .action(async () => {
     await whoamiCommand();
+  });
+
+program
+  .command('update')
+  .description(
+    'Mettre à jour le binaire vers la dernière release GitHub (checksum + signature RSA ' +
+      'vérifiés, refuse si absents). No-op avec message si installé via npm/source.'
+  )
+  .option('--check', 'vérifier seulement, ne pas installer')
+  .action(async (opts: { check?: boolean }) => {
+    await updateCommand(opts);
   });
 
 program
