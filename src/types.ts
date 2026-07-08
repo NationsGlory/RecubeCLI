@@ -174,6 +174,29 @@ export interface DraftInitiateSlot {
   upload_headers?: Record<string, string>;
 }
 
+/** Une entrée de GET /drafts/{id}/files (mode flat ou arbo). */
+export interface DraftFileEntry {
+  path: string;
+  name?: string;
+  sha256: string;
+  size: number;
+  exec: boolean;
+  origin: 'base' | 'added' | 'replaced' | string;
+  removed: boolean;
+  uploaded_at?: string | null;
+  uploaded_by?: string | null;
+}
+
+/** GET /drafts/{id}/files?flat=1 (liste plate paginée, sans filtre). */
+export interface DraftFilesFlatResult {
+  files: DraftFileEntry[];
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+  query: string;
+}
+
 /** GET /drafts/{id}/diff. */
 export interface DraftDiff {
   added: { path: string; sha256?: string; size?: number }[];

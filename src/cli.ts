@@ -32,6 +32,7 @@ import {
   draftAddCommand,
   draftRmCommand,
   draftDiffCommand,
+  draftFilesCommand,
   draftPublishCommand,
   draftAbandonCommand,
 } from './commands/draft.js';
@@ -94,6 +95,10 @@ const EXAMPLES: Record<string, string[]> = {
   'recube draft diff': [
     'recube draft diff',
     'recube draft diff -t nationsglory -c beta',
+  ],
+  'recube draft files': [
+    'recube draft files',
+    'recube draft files -t nationsglory -c beta',
   ],
   'recube draft publish': [
     '# Par défaut : publie un build DORMANT (scellé/signé, PAS live) — défaut sûr.',
@@ -528,6 +533,20 @@ draft
   .option('--draft <id>', 'id du draft précis (avec -t/-c ; défaut : le draft ouvert)')
   .action(async (opts: { tenant?: string; channel?: string; draft?: string }) => {
     await draftDiffCommand({ tenant: opts.tenant, channel: opts.channel, draft: opts.draft });
+  });
+
+draft
+  .command('files')
+  .description(
+    'Liste tout le contenu résolu du draft (base ⊕ overlay) : taille, sha, origine ' +
+      '(hérité/ajouté/remplacé/retiré), et pour les fichiers touchés par CE draft, date ' +
+      'et auteur de l\'upload. Draft courant par défaut, ou via -t/-c[/--draft].'
+  )
+  .option('-t, --tenant <slug>', 'tenant du draft cible (défaut : draft courant local)')
+  .option('-c, --channel <name>', 'channel du draft cible (@me = ta branche perso)')
+  .option('--draft <id>', 'id du draft précis (avec -t/-c ; défaut : le draft ouvert)')
+  .action(async (opts: { tenant?: string; channel?: string; draft?: string }) => {
+    await draftFilesCommand({ tenant: opts.tenant, channel: opts.channel, draft: opts.draft });
   });
 
 draft

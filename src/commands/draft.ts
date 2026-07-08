@@ -651,6 +651,64 @@ export async function draftDiffCommand(
   }
 }
 
+/** `origin` → badge coloré 1 caractère, même code couleur que draftDiffCommand. */
+function originBadge(origin: string): string {
+  if (origin === 'added') return chalk.green('+');
+  if (origin === 'replaced') return chalk.yellow('~');
+
+  return chalk.dim('=');
+}
+
+/** Formatte une taille en octets en unité lisible (Ko/Mo/Go), 1 décimale. */
+function formatSize(bytes: number): string {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} Go`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} Mo`;
+  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(1)} Ko`;
+
+  return `${bytes} o`;
+}
+
+export async function draftFilesCommand(
+  opts: { tenant?: string; channel?: string; draft?: string } = {}
+): Promise<void> {
+  const s = await session();
+  refuseServiceTokenForNonAdd(s, 'files');
+  const st = await resolveTargetOrFail(s, opts);
+
+  try {
+    let page = 1;
+    let totalPages = 1;
+    let total = 0;
+    const rows: string[] = [];
+
+    do {
+      const res = await s.api.draftFilesFlat(st.tenant, st.channel, st.draftId, page, 200);
+      total = res.total;
+      totalPages = res.total_pages;
+      for (const f of res.files) {
+        const badge = f.removed ? chalk.red('-') : originBadge(f.origin);
+        const size = formatSize(f.size).padStart(9);
+        const sha = f.sha256.slice(0, 10);
+        const meta = f.uploaded_at
+          ? chalk.dim(` (ajouté ${new Date(f.uploaded_at).toLocaleString()} par ${f.uploaded_by ?? '?'})`)
+          : '';
+        rows.push(`  ${badge} ${size}  ${sha}  ${f.path}${meta}`);
+      }
+      page++;
+    } while (page <= totalPages);
+
+    info(`Fichiers du draft ${chalk.bold(st.draftId)} (${total} au total) :`);
+    for (const r of rows) info(r);
+    info(
+      chalk.dim(
+        '  + ajouté  ~ remplacé  = hérité (base)  - retiré | taille · sha (10) · chemin · métadonnée d\'upload'
+      )
+    );
+  } catch (err) {
+    fail(explainApiError(err, 'generic'));
+  }
+}
+
 export async function draftPublishCommand(opts: {
   tenant?: string;
   channel?: string;

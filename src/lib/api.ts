@@ -23,6 +23,7 @@ import type {
   Channel,
   Draft,
   DraftDiff,
+  DraftFilesFlatResult,
   DraftInitiateSlot,
   DraftPublishResult,
   Game,
@@ -166,6 +167,24 @@ export class RecubeApiClient {
       `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}/diff`
     );
     return (d.data ?? d) as DraftDiff;
+  }
+
+  /**
+   * Liste PLATE paginée de tout le build résolu du draft (base ⊕ overlay),
+   * sans filtre — `?flat=1` (cf. RecubeGG DraftBuildsController::listFiles).
+   * Sert `recube draft files`. Le CLI pagine lui-même si `total_pages > 1`.
+   */
+  async draftFilesFlat(
+    tenant: string,
+    channel: string,
+    draftId: string,
+    page: number = 1,
+    perPage: number = 200
+  ): Promise<DraftFilesFlatResult> {
+    const d = await this.get<{ data?: DraftFilesFlatResult } & DraftFilesFlatResult>(
+      `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}/files?flat=1&page=${page}&per_page=${perPage}`
+    );
+    return (d.data ?? d) as DraftFilesFlatResult;
   }
 
   async draftPublish(

@@ -21,9 +21,13 @@ import { ui, theme } from '../lib/ui.js';
 
 // Le workflow draft (create/add/rm/diff/publish) est central → le scope par
 // défaut DOIT inclure `launcher:draft`, sinon un simple `recube login` ne
-// permet pas de drafter (incident 2026-06-25 : token sans draft). Override
+// permet pas de drafter (incident 2026-06-25 : token sans draft). `launcher:promote`
+// inclus par défaut depuis 2026-07-08 : la commande `recube promote` existe déjà
+// et un scope manquant forçait un `recube login --scope` séparé pour l'utiliser.
+// Reste gaté côté serveur par la perm `launcher.{tenant}.promote` (le scope OAuth
+// seul ne suffit jamais à promouvoir — defense-in-depth inchangée). Override
 // possible via `recube login --scope "..."`.
-const DEFAULT_SCOPE = 'launcher:draft launcher:publish profile:read';
+const DEFAULT_SCOPE = 'launcher:draft launcher:publish launcher:promote profile:read';
 
 export async function loginCommand(opts: { scope?: string; force?: boolean } = {}): Promise<void> {
   ui.intro('recube login');
