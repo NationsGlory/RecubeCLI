@@ -710,10 +710,11 @@ export async function draftFilesCommand(
         const badge = f.removed ? chalk.red('-') : originBadge(f.origin);
         const size = formatSize(f.size).padStart(9);
         const sha = f.sha256.slice(0, 10);
+        const encryptedBadge = f.encrypted ? chalk.cyan(' 🔒') : '';
         const meta = f.uploaded_at
           ? chalk.dim(` (ajouté ${new Date(f.uploaded_at).toLocaleString()} par ${f.uploaded_by ?? '?'})`)
           : '';
-        rows.push(`  ${badge} ${size}  ${sha}  ${f.path}${meta}`);
+        rows.push(`  ${badge} ${size}  ${sha}  ${f.path}${encryptedBadge}${meta}`);
       }
       page++;
     } while (page <= totalPages);
@@ -728,7 +729,7 @@ export async function draftFilesCommand(
     }
     info(
       chalk.dim(
-        '  + ajouté  ~ remplacé  = hérité (base)  - retiré | taille · sha (10) · chemin · métadonnée d\'upload'
+        '  + ajouté  ~ remplacé  = hérité (base)  - retiré  🔒 chiffré | taille · sha (10) · chemin · métadonnée d\'upload'
       )
     );
     if (overlayOnly) {
