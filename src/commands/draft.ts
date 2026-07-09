@@ -551,12 +551,19 @@ export async function draftAddCommand(
     }
 
     // Commit the file into the draft's resolved set.
+    // encrypted est TRI-STATE côté backend (contrairement à exec) : clé absente
+    // = HÉRITE la valeur résolue (chiffré sticky/opt-in) ; true/false explicite
+    // = FORCE. `--encrypt` absent → on OMET la clé (opts.encrypt ? true :
+    // undefined ; JSON.stringify drop les undefined) pour laisser le backend
+    // hériter. NE PAS remettre `?? false` : la CI re-uploadant un mod déjà
+    // chiffré sans --encrypt enverrait false explicite → force-off silencieux =
+    // jar publié en clair. Pas de --no-encrypt (le force-off reste une action panel).
     const committed = await s.api.draftFileCommit(st.tenant, st.channel, st.draftId, {
       path: virtual,
       sha256,
       size,
       exec: false,
-      encrypted: opts.encrypt ?? false,
+      encrypted: opts.encrypt ? true : undefined,
     });
     const action = committed.action === 'replace' ? 'remplacé' : 'ajouté';
     ok(`${virtual} ${action} au ${targetLabel}.`);

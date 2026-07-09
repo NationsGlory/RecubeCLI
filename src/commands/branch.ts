@@ -223,7 +223,11 @@ export async function branchShowCommand(opts: { tenant?: string }): Promise<void
       for (const o of overlay) {
         const mark =
           o.action === 'add' ? chalk.green('+') : o.action === 'remove' ? chalk.red('-') : chalk.yellow('~');
-        info(`    ${mark} ${o.path}${o.exec ? ' (exec)' : ''}`);
+        // ISO avec `recube draft files` (🔒 chiffré). Si le backend n'échoue pas
+        // encore `encrypted` dans son echo overlay (fix PersonalBranchController
+        // en cours côté recubegg), le champ est undefined → badge simplement absent.
+        const lock = o.encrypted ? chalk.cyan(' 🔒') : '';
+        info(`    ${mark} ${o.path}${o.exec ? ' (exec)' : ''}${lock}`);
       }
     }
     info(chalk.dim(`  → recube merge --tenant ${tenant} --into <channel> pour mettre en ligne.`));
@@ -278,12 +282,17 @@ export async function branchOverlayAddCommand(
       info(`${chalk.dim('skip')}  déjà en R2 (dédup par sha256)`);
     }
 
+    // encrypted est TRI-STATE côté backend (contrairement à exec) : clé absente
+    // = HÉRITE la valeur résolue ; true/false explicite = FORCE. `--encrypt`
+    // absent → on OMET la clé (JSON.stringify drop les undefined) pour laisser le
+    // backend hériter — NE PAS remettre `?? false` (force-off silencieux). `exec`
+    // reste `?? false` : lui n'a pas d'héritage. Pas de --no-encrypt (force-off = panel).
     const out = await s.api.putBranchOverlay(tenant, {
       path: virtual,
       sha256,
       size,
       exec: opts.exec ?? false,
-      encrypted: opts.encrypt ?? false,
+      encrypted: opts.encrypt ? true : undefined,
     });
     const action = out.overlay.action === 'replace' ? 'remplacé' : 'ajouté';
     ok(`${virtual} ${action} sur ta branche perso (${tenant}).`);
