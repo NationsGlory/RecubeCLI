@@ -140,7 +140,7 @@ export class RecubeApiClient {
     tenant: string,
     channel: string,
     draftId: string,
-    payload: { path: string; sha256: string; size: number; exec?: boolean }
+    payload: { path: string; sha256: string; size: number; exec?: boolean; encrypted?: boolean }
   ): Promise<{ action?: string; [k: string]: unknown }> {
     const d = await this.post<{ data?: Record<string, unknown> } & Record<string, unknown>>(
       `${this.draftsBase(tenant, channel)}/${encodeURIComponent(draftId)}/files`,
@@ -410,7 +410,7 @@ export class RecubeApiClient {
   /** POST /branches/me/overlay — commit an add/replace after the R2 upload. */
   async putBranchOverlay(
     tenant: string,
-    payload: { path: string; sha256: string; size: number; exec?: boolean }
+    payload: { path: string; sha256: string; size: number; exec?: boolean; encrypted?: boolean }
   ): Promise<BranchOverlayPutResult> {
     const d = await this.post<{ data?: BranchOverlayPutResult } & BranchOverlayPutResult>(
       `${this.branchesBase(tenant)}/me/overlay`,

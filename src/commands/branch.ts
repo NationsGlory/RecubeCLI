@@ -234,7 +234,7 @@ export async function branchShowCommand(opts: { tenant?: string }): Promise<void
 
 export async function branchOverlayAddCommand(
   file: string,
-  opts: { tenant?: string; path?: string; exec?: boolean }
+  opts: { tenant?: string; path?: string; exec?: boolean; encrypt?: boolean }
 ): Promise<void> {
   if (!opts.tenant) fail('--tenant requis');
   const tenant = opts.tenant;
@@ -283,6 +283,7 @@ export async function branchOverlayAddCommand(
       sha256,
       size,
       exec: opts.exec ?? false,
+      encrypted: opts.encrypt ?? false,
     });
     const action = out.overlay.action === 'replace' ? 'remplacé' : 'ajouté';
     ok(`${virtual} ${action} sur ta branche perso (${tenant}).`);

@@ -172,7 +172,7 @@ export interface Draft {
    */
   finalize_error?: string | null;
   resolved_file_count?: number;
-  resolved_files?: { path: string; sha256: string; size: number; exec?: boolean }[];
+  resolved_files?: { path: string; sha256: string; size: number; exec?: boolean; encrypted?: boolean }[];
   live_moved_since_base?: boolean;
   created_at?: string;
   [k: string]: unknown;
@@ -193,6 +193,7 @@ export interface DraftFileEntry {
   sha256: string;
   size: number;
   exec: boolean;
+  encrypted?: boolean;
   origin: 'base' | 'added' | 'replaced' | string;
   removed: boolean;
   uploaded_at?: string | null;
@@ -283,6 +284,7 @@ export interface BranchOverlayEntry {
   sha256?: string | null;
   size?: number | null;
   exec?: boolean;
+  encrypted?: boolean;
 }
 
 /** POST /branches/me/overlay/initiate — presigned PUT slot for an overlay blob. */
@@ -298,7 +300,14 @@ export interface BranchOverlayInitiateSlot {
 
 /** POST/DELETE /branches/me/overlay result — commit + recompose outcome. */
 export interface BranchOverlayPutResult {
-  overlay: { path: string; action: string; sha256?: string | null; size?: number | null; exec?: boolean };
+  overlay: {
+    path: string;
+    action: string;
+    sha256?: string | null;
+    size?: number | null;
+    exec?: boolean;
+    encrypted?: boolean;
+  };
   recomposed: boolean;
   build_id?: string | null;
 }

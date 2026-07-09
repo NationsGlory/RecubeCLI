@@ -490,7 +490,7 @@ export async function draftStatusCommand(
 
 export async function draftAddCommand(
   jar: string,
-  opts: { path?: string; draftId?: string; tenant?: string; channel?: string }
+  opts: { path?: string; draftId?: string; tenant?: string; channel?: string; encrypt?: boolean }
 ): Promise<void> {
   // `add` est la SEULE commande utilisable par un token de service (rcs_,
   // add-only). Ciblage : --draft <id> (ou RECUBE_DRAFT_ID) pour un draft précis,
@@ -556,6 +556,7 @@ export async function draftAddCommand(
       sha256,
       size,
       exec: false,
+      encrypted: opts.encrypt ?? false,
     });
     const action = committed.action === 'replace' ? 'remplacé' : 'ajouté';
     ok(`${virtual} ${action} au ${targetLabel}.`);

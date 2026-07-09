@@ -520,13 +520,18 @@ draft
   .option('--draft <id>', 'id du draft cible (CI ; défaut: .recube/draft.json ou env RECUBE_DRAFT_ID)')
   .option('-t, --tenant <slug>', 'tenant du draft cible (CI ; ou env RECUBE_TENANT)')
   .option('-c, --channel <name>', 'channel du draft cible (CI ; ou env RECUBE_CHANNEL)')
+  .option('--encrypt', 'chiffrer le contenu (nécessite RecubeCore actif sur le channel cible)')
   .action(
-    async (jar: string, opts: { path?: string; draft?: string; tenant?: string; channel?: string }) => {
+    async (
+      jar: string,
+      opts: { path?: string; draft?: string; tenant?: string; channel?: string; encrypt?: boolean }
+    ) => {
       await draftAddCommand(jar, {
         path: opts.path,
         draftId: opts.draft,
         tenant: opts.tenant,
         channel: opts.channel,
+        encrypt: opts.encrypt,
       });
     }
   );
@@ -632,8 +637,14 @@ branchOverlay
   .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
   .option('--path <virtualPath>', 'chemin cible dans le build (défaut : basename du fichier)')
   .option('--exec', 'marquer le fichier exécutable')
-  .action(async (file: string, opts: { tenant?: string; path?: string; exec?: boolean }) => {
-    await branchOverlayAddCommand(file, { tenant: opts.tenant, path: opts.path, exec: opts.exec });
+  .option('--encrypt', 'chiffrer le contenu (nécessite RecubeCore actif sur le channel cible)')
+  .action(async (file: string, opts: { tenant?: string; path?: string; exec?: boolean; encrypt?: boolean }) => {
+    await branchOverlayAddCommand(file, {
+      tenant: opts.tenant,
+      path: opts.path,
+      exec: opts.exec,
+      encrypt: opts.encrypt,
+    });
   });
 
 branchOverlay
