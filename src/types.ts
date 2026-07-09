@@ -151,14 +151,26 @@ export interface DraftState {
   version?: string;
 }
 
-/** Draft record as returned by /drafts (list/create/status). */
+/** Draft record as returned by /drafts (list/create/status/show). */
 export interface Draft {
   id: string;
   tenant?: string;
   channel?: string;
   version_tag?: string;
   base_build_id?: string | null;
-  status?: 'open' | 'published' | 'abandoned' | string;
+  status?: 'open' | 'finalizing' | 'published' | 'abandoned' | string;
+  /**
+   * Build finalisé une fois `status === 'published'` (async, backend
+   * DraftBuildsController::draftPayload). Non-null uniquement après succès du
+   * FinalizeDraftBuildJob — c'est le signal de terminaison du poll publish.
+   */
+  finalized_build_id?: string | null;
+  /**
+   * Message d'erreur posé quand la finalisation échoue : le job repasse le
+   * draft en `status === 'open'` AVEC `finalize_error` non-null (réutilisable).
+   * `open` + `finalize_error` = échec terminal du poll publish.
+   */
+  finalize_error?: string | null;
   resolved_file_count?: number;
   resolved_files?: { path: string; sha256: string; size: number; exec?: boolean }[];
   live_moved_since_base?: boolean;
@@ -206,28 +218,20 @@ export interface DraftDiff {
   live_moved_since_base?: boolean;
 }
 
-/** POST /drafts/{id}/publish. */
-export interface DraftPublishResult {
-  status?: string;
-  finalized_build?: {
-    build_id?: string;
-    manifest_sha256?: string;
-    files_count?: number;
-    [k: string]: unknown;
-  };
-  /** true = build mis en ligne (promote OK) ; false/absent = build dormant. */
-  promoted?: boolean;
-  /**
-   * Promote demandé (--promote) mais refusé AVANT exécution : le publish a
-   * réussi quand même (201). `missing_scope` = token sans launcher:promote ;
-   * `missing_permission` = user sans droit de promotion.
-   */
-  promote_skipped?: 'missing_scope' | 'missing_permission' | string;
-  /** Promote demandé mais échoué à l'exécution (code d'erreur serveur). */
-  promote_error?: string;
-  /** Message humain associé à `promote_error`. */
-  promote_message?: string;
-  [k: string]: unknown;
+/**
+ * POST /drafts/{id}/publish — ASYNC depuis 2026-07-08 (backend
+ * DraftBuildsController::publish). Renvoie 202 IMMÉDIATEMENT après le claim
+ * atomique (open->finalizing) : le corps est le `draftPayload` du draft
+ * fraîchement réclamé (`status: 'finalizing'`) + `queued: true`. Il ne porte
+ * PLUS de résultat final (`finalized_build`/`promoted`/`promote_skipped` de
+ * l'ancien 201 synchrone) — le vrai travail tourne dans FinalizeDraftBuildJob.
+ * Le résultat se lit en pollant GET /drafts/{id} (cf. `Draft.finalized_build_id`
+ * / `Draft.finalize_error`). Erreurs POST possibles AVANT tout poll : 503
+ * `dispatch_failed` (queue injoignable) ; 403 `promote_required_for_derived_channel`.
+ */
+export interface DraftPublishResult extends Draft {
+  /** Toujours true sur le 202 : le draft a été réclamé et le job dispatché. */
+  queued?: boolean;
 }
 
 /**

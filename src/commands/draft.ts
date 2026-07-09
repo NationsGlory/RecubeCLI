@@ -35,9 +35,9 @@ import {
 import { DraftTargetError, resolveDraftTarget } from '../lib/draft-target.js';
 import { toDraftPath, InvalidDraftPathError } from '../lib/draft-path.js';
 import { resolveRmTarget } from '../lib/draft-rm-resolve.js';
-import { chalk } from '../lib/ui.js';
+import { chalk, ui } from '../lib/ui.js';
 import type { AuthenticatedSession } from '../auth/session.js';
-import type { DraftState } from '../types.js';
+import type { Draft, DraftState } from '../types.js';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -297,6 +297,25 @@ function explainApiError(err: unknown, ctx: 'create' | 'publish' | 'add' | 'gene
       }
     }
     if (ctx === 'publish') {
+      // Publish ASYNC (2026-07-08) : deux échecs surviennent AVANT tout poll.
+      if (err.status === 503 && code === 'dispatch_failed') {
+        // La queue de finalize est injoignable : le claim a été rollback
+        // serveur-side (draft repassé `open`), le draft reste réutilisable.
+        return (
+          `Publication non lancée (503 dispatch_failed) : la file de finalisation est indisponible.\n  ` +
+          chalk.dim(
+            (body.message ?? 'Réessaie dans un instant ; le draft est resté ouvert (rien n\'a été publié).')
+          )
+        );
+      }
+      if (err.status === 403 && code === 'promote_required_for_derived_channel') {
+        // Channel dérivé : le finalize met le live à jour inconditionnellement,
+        // donc la permission de promotion est exigée pour publier tout court.
+        return (
+          `Publish refusé (403 promote_required_for_derived_channel) : ce channel est dérivé — sa publication met le live à jour immédiatement, donc la permission de promotion (launcher.{tenant}.promote) est requise.\n  ` +
+          chalk.dim(body.message ?? 'Publie sur un channel non-dérivé, ou obtiens la permission de promotion.')
+        );
+      }
       if (err.status === 422) {
         switch (code) {
           case 'missing_recube_core':
@@ -719,6 +738,97 @@ export async function draftFilesCommand(
   }
 }
 
+// ── poll de finalisation (publish async) ─────────────────────────────────────
+
+/**
+ * Intervalle et timeout du poll de finalisation. Surchargés par env pour les
+ * tests (poll instantané) et pour donner une échappatoire ops sur les très gros
+ * builds. Lus à l'appel (pas au chargement du module) pour que les tests
+ * puissent les poser avant d'invoquer la commande.
+ */
+function pollIntervalMs(): number {
+  const v = Number(process.env.RECUBE_DRAFT_POLL_INTERVAL_MS);
+  return Number.isFinite(v) && v >= 0 ? v : 2500;
+}
+function pollTimeoutMs(): number {
+  const v = Number(process.env.RECUBE_DRAFT_POLL_TIMEOUT_MS);
+  return Number.isFinite(v) && v > 0 ? v : 10 * 60 * 1000;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Issue terminale du poll de finalisation d'un publish async. */
+type FinalizeOutcome =
+  | { kind: 'published'; buildId: string | null; draft: Draft }
+  | { kind: 'failed'; error: string }
+  | { kind: 'timeout' };
+
+/**
+ * Poll GET /drafts/{id} jusqu'à un état terminal (le publish est ASYNC depuis
+ * 2026-07-08 : le POST rend 202 immédiatement, le vrai travail tourne dans
+ * FinalizeDraftBuildJob). Terminaisons :
+ *   - `status === 'published'`            → succès (finalized_build_id non-null).
+ *   - `status === 'open'` + finalize_error → échec (draft rollback, réutilisable).
+ *   - timeout dépassé                     → indéterminé (gros build en cours ?).
+ * `status === 'finalizing'` (ou `open` transitoire sans erreur) → on repoll.
+ * Une erreur réseau transitoire pendant le poll est retentée jusqu'au timeout ;
+ * une ApiError d'autz (401/403/404) coupe net via `fail()`.
+ */
+async function pollDraftFinalize(s: AuthenticatedSession, st: DraftState): Promise<FinalizeOutcome> {
+  const intervalMs = pollIntervalMs();
+  const deadline = Date.now() + pollTimeoutMs();
+  const interactive = Boolean(process.stdout.isTTY);
+  const spin = interactive ? ui.spinner() : null;
+  const startedAt = Date.now();
+  spin?.start('Finalisation du build en cours…');
+
+  for (;;) {
+    let d: Draft;
+    try {
+      d = await s.api.getDraft(st.tenant, st.channel, st.draftId);
+    } catch (err) {
+      // Autz / draft disparu = non-transitoire : inutile de retenter.
+      if (
+        err instanceof ApiError &&
+        (err.status === 401 || err.status === 403 || err.status === 404)
+      ) {
+        spin?.stop('Poll interrompu.');
+        fail(explainApiError(err, 'generic'));
+      }
+      // Sinon (réseau, 5xx transitoire) : on retente jusqu'au timeout.
+      if (Date.now() >= deadline) {
+        spin?.stop('Délai de finalisation dépassé.');
+        return { kind: 'timeout' };
+      }
+      await sleep(intervalMs);
+      continue;
+    }
+
+    const status = String(d.status ?? '');
+    if (status === 'published') {
+      spin?.stop('Build finalisé.');
+      return {
+        kind: 'published',
+        buildId: d.finalized_build_id != null ? String(d.finalized_build_id) : null,
+        draft: d,
+      };
+    }
+    if (status === 'open' && d.finalize_error) {
+      spin?.stop('Finalisation échouée.');
+      return { kind: 'failed', error: String(d.finalize_error) };
+    }
+
+    if (Date.now() >= deadline) {
+      spin?.stop('Délai de finalisation dépassé.');
+      return { kind: 'timeout' };
+    }
+    spin?.message(`Finalisation du build en cours… (${Math.round((Date.now() - startedAt) / 1000)}s)`);
+    await sleep(intervalMs);
+  }
+}
+
 export async function draftPublishCommand(opts: {
   tenant?: string;
   channel?: string;
@@ -754,74 +864,87 @@ export async function draftPublishCommand(opts: {
     fail('--note doit faire entre 6 et 2000 caractères');
   }
 
+  // 1) POST publish : ASYNC → 202 (queued) après le claim atomique. Les seules
+  //    erreurs à traiter ICI (avant tout poll) sont 503 dispatch_failed et 403
+  //    promote_required_for_derived_channel → explainApiError + arrêt immédiat.
+  const payload: { reference: string; note: string; promote?: boolean } = { reference, note };
+  if (opts.promote) payload.promote = true;
   try {
-    // Le body ne porte `promote` QUE si --promote est passé : sans le flag, le
-    // corps reste identique à l'existant (build publié → dormant).
-    const payload: { reference: string; note: string; promote?: boolean } = { reference, note };
-    if (opts.promote) payload.promote = true;
-
-    const res = await s.api.draftPublish(st.tenant, st.channel, st.draftId, payload);
-    const b = res.finalized_build ?? {};
-    ok(`Draft publié → build ${chalk.bold(b.build_id ?? '?')}  (${st.tenant}/${st.channel})`);
-    info(`  reference      : ${reference}`);
-    info(`  status         : ${res.status ?? 'published'}`);
-    info(`  manifest_sha256: ${b.manifest_sha256 ?? '-'}`);
-    info(`  files_count    : ${b.files_count ?? '-'}`);
-    info(`  promu (live)   : ${res.promoted ? 'OUI' : 'NON'}`);
-
-    if (opts.promote) {
-      // Promote demandé : le publish réussit TOUJOURS (201), mais la mise en
-      // ligne peut être refusée (scope/permission) ou échouer côté serveur.
-      if (res.promoted) {
-        ok('Build publié ET mis en ligne (promu).');
-      } else if (res.promote_skipped) {
-        const reason =
-          res.promote_skipped === 'missing_scope'
-            ? 'scope de promotion manquant'
-            : res.promote_skipped === 'missing_permission'
-              ? 'permission de promotion manquante'
-              : `promotion refusée (${res.promote_skipped})`;
-        warn(
-          `Build publié mais NON mis en ligne : ${reason}.\n  ` +
-            chalk.dim(
-              'Utilise le panel admin ou un token avec le scope launcher:promote pour le go-live.'
-            )
-        );
-      } else if (res.promote_error) {
-        warn(
-          `Build publié mais la mise en ligne a échoué : ${res.promote_message ?? res.promote_error}.\n  ` +
-            chalk.dim('Le build est publié (dormant) — retente le promote via le panel admin.')
-        );
-      } else {
-        warn(
-          'Build publié mais NON mis en ligne (raison non précisée par le serveur).\n  ' +
-            chalk.dim('Promote via le panel admin quand prêt.')
-        );
-      }
-    } else {
-      info(
-        chalk.dim(
-          '  Le PROMOTE est séparé — le build est publié mais PAS live. Promote via l\'admin/API quand prêt.'
-        )
-      );
-    }
-    // Build resté dormant (sans --promote, ou promote refusé/échoué) → hint
-    // copiable pour le mettre en ligne plus tard avec `recube promote`.
-    if (!res.promoted && b.build_id) {
-      info(
-        chalk.dim('  → Pour le mettre en ligne : ') +
-          `recube promote -t ${st.tenant} -c ${st.channel} -b ${b.build_id}`
-      );
-    }
-    // Efface le pointeur local UNIQUEMENT s'il visait CE draft (un publish ciblé
-    // par --tenant/--channel ne doit pas effacer un autre draft courant local).
-    const local = await loadDraftState();
-    if (local?.draftId === st.draftId) {
-      await clearDraftState();
-      info(chalk.dim('  draft courant local effacé.'));
-    }
+    await s.api.draftPublish(st.tenant, st.channel, st.draftId, payload);
   } catch (err) {
     fail(explainApiError(err, 'publish'));
+  }
+  info(
+    chalk.dim(
+      `Publication du draft ${chalk.bold(st.draftId)} lancée (${st.tenant}/${st.channel}) — finalisation en file d'attente…`
+    )
+  );
+
+  // 2) Poll GET /drafts/{id} jusqu'à un état terminal (published / open+error /
+  //    timeout). On n'efface le pointeur local QUE sur un `published` confirmé.
+  const outcome = await pollDraftFinalize(s, st);
+
+  if (outcome.kind === 'failed') {
+    // Échec de finalisation : le draft est rollback en `open` côté serveur, donc
+    // RÉUTILISABLE — on NE touche PAS le pointeur local (l'user corrige + republie).
+    fail(
+      `Finalisation échouée — le build n'a PAS été publié : ${outcome.error}\n  ` +
+        chalk.dim(
+          `Le draft ${st.draftId} est resté ouvert (réutilisable) : corrige puis relance recube draft publish.`
+        )
+    );
+  }
+
+  if (outcome.kind === 'timeout') {
+    // Indéterminé : gros build encore en traitement le plus souvent, pas une
+    // erreur franche. On garde le pointeur local et on rend la main sans échouer.
+    warn(
+      `Finalisation toujours en cours après ${Math.round(pollTimeoutMs() / 1000)}s — arrêt du suivi (le build peut encore aboutir).\n  ` +
+        chalk.dim(
+          `Vérifie l'état plus tard : recube draft status -t ${st.tenant} -c ${st.channel} --draft ${st.draftId}`
+        )
+    );
+    return;
+  }
+
+  // outcome.kind === 'published'
+  const b = outcome.draft;
+  const buildId = outcome.buildId;
+  ok(`Draft publié → build ${chalk.bold(buildId ?? '?')}  (${st.tenant}/${st.channel})`);
+  info(`  reference   : ${reference}`);
+  info(`  version     : ${b.version_tag ?? st.version ?? '-'}`);
+  info(`  fichiers    : ${b.resolved_file_count ?? '-'}`);
+
+  if (opts.promote) {
+    // Promote demandé : la mise en ligne est appliquée par le job de finalize
+    // (best-effort, non re-throw). Le payload draft ne l'expose PAS → on ne peut
+    // pas la CONFIRMER ici : on l'annonce et on donne le moyen de vérifier/forcer.
+    info(
+      chalk.dim(
+        '  promote demandé — la mise en ligne est appliquée par le job de finalisation (best-effort, non garanti si permission/erreur).'
+      )
+    );
+  } else {
+    info(
+      chalk.dim(
+        '  Le PROMOTE est séparé — le build est publié mais PAS forcément live. Promote via l\'admin/API quand prêt.'
+      )
+    );
+  }
+  if (buildId) {
+    info(
+      chalk.dim(opts.promote ? '  → Vérifie/force la mise en ligne : ' : '  → Pour le mettre en ligne : ') +
+        `recube promote -t ${st.tenant} -c ${st.channel} -b ${buildId}`
+    );
+  }
+
+  // Efface le pointeur local UNIQUEMENT sur publish CONFIRMÉ et s'il visait CE
+  // draft (un publish ciblé par --tenant/--channel ne doit pas effacer un autre
+  // draft courant local).
+  const local = await loadDraftState();
+  if (local?.draftId === st.draftId) {
+    await clearDraftState();
+    info(chalk.dim('  draft courant local effacé.'));
   }
 }
 

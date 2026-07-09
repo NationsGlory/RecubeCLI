@@ -192,6 +192,13 @@ export class RecubeApiClient {
     return (d.data ?? d) as DraftFilesFlatResult;
   }
 
+  /**
+   * ASYNC (2026-07-08) : renvoie 202 `{data: {...draftPayload, queued: true}}`
+   * dès que le draft est réclamé (open->finalizing) ; le résultat final se lit
+   * en pollant `getDraft` (status `published` + `finalized_build_id`, ou `open`
+   * + `finalize_error`). Peut throw ApiError 503 (`dispatch_failed`) ou 403
+   * (`promote_required_for_derived_channel`) AVANT tout poll.
+   */
   async draftPublish(
     tenant: string,
     channel: string,
