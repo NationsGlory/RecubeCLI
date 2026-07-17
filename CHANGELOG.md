@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.12 - 2026-07-17
+
+### Changes
+
+- **Découvrabilité de `--path` (pose un fichier dans un sous-dossier).** L'option
+  `--path <virtualPath>` existait déjà sur `recube draft add` et `recube branch
+  overlay add`, mais restait invisible : `recube draft add` n'avait aucun bloc
+  d'exemples, et son positionnel `<jar>` laissait croire qu'il fallait un jar.
+  Corrigé sans changer aucun comportement :
+  - `recube draft add` a désormais un bloc d'exemples montrant le défaut
+    (`mods/<nom-du-fichier>`) ET le cas sous-dossier
+    (`--path config/mon-mod.cfg`), plus le ciblage CI (`-t/-c`).
+  - Le positionnel `<jar>` devient `<file>` ; la description précise qu'il
+    accepte n'importe quel type de fichier (jar, cfg, zip, ...) et mentionne
+    `--path`.
+  - Les descriptions de l'option `--path` (draft add + overlay add) indiquent
+    « sous-dossiers OK » avec un exemple et le défaut explicite.
+  - Le bloc d'exemples de `recube branch overlay add` gagne des annotations
+    défaut/sous-dossier ; celui de `recube` (racine) montre le cas `--path`.
+  - Le help de toute commande à sous-commandes affiche une ligne d'orientation
+    « Options d'une sous-commande : recube <cmd> <sous-commande> --help » pour
+    guider vers la page où vivent les options (ex `recube draft add --help`).
+
 ## 0.7.8 - 2026-07-06
 
 ### Fixes

@@ -64,6 +64,8 @@ const EXAMPLES: Record<string, string[]> = {
     '# Flow draft : add → publish (DORMANT, sûr) → promote (LIVE, perm requise)',
     'recube draft create -t nationsglory -c beta',
     'recube draft add ./build/mods/mon-mod.jar',
+    "# Fichier dans un sous-dossier (config/, scripts/...) : précise --path <chemin/dans/le/build>",
+    'recube draft add ./build/config/mon-mod.cfg --path config/mon-mod.cfg',
     'recube draft publish -t nationsglory -c beta',
     'recube promote -t nationsglory -c beta -b <buildId>',
     '# Flow branche perso : create → overlay add/rm (itère en autonomie) → merge (live)',
@@ -75,6 +77,15 @@ const EXAMPLES: Record<string, string[]> = {
     'recube login',
     'recube login --scope "launcher:publish launcher:draft profile:read"',
     'recube login --force',
+  ],
+  'recube draft add': [
+    "# Accepte n'importe quel fichier (jar, cfg, zip, json, etc.), pas seulement des jars.",
+    '# Défaut sans --path : le fichier atterrit dans mods/<nom-du-fichier>.',
+    'recube draft add ./build/mods/mon-mod.jar',
+    '# Sous-dossier : --path <chemin/dans/le/build> pose le fichier où tu veux.',
+    'recube draft add ./build/config/mon-mod.cfg --path config/mon-mod.cfg',
+    '# CI (token de service) : cible le draft ouvert via -t/-c (ou RECUBE_TENANT/RECUBE_CHANNEL).',
+    'recube draft add ./out/mon-mod.jar -t nationsglory -c beta',
   ],
   'recube draft use': [
     '# Sélectionne le draft ouvert du couple tenant/channel comme draft courant.',
@@ -129,7 +140,9 @@ const EXAMPLES: Record<string, string[]> = {
   ],
   'recube branch show': ['recube branch show -t nationsglory'],
   'recube branch overlay add': [
+    '# Accepte tout type de fichier. Défaut sans --path : posé à la racine du build (basename).',
     'recube branch overlay add ./build/mods/mon-mod.jar -t nationsglory',
+    '# Sous-dossier : --path <chemin/dans/le/build> pose le fichier où tu veux (ex config/).',
     'recube branch overlay add ./build/config/mon-mod.cfg -t nationsglory --path config/mon-mod.cfg',
   ],
   'recube branch overlay rm': ['recube branch overlay rm mods/vieux-mod.jar -t nationsglory'],
@@ -228,6 +241,16 @@ function formatHelp(cmd: Command, helper: Help): string {
       }
     }
     out.push('');
+  }
+
+  // Les options d'une commande vivent sur SA page de help. Quand la commande
+  // courante a des sous-commandes, on oriente explicitement vers le drill-down
+  // (ex : `recube draft --help` liste `add` mais ses options, dont --path, ne
+  // sont visibles que sur `recube draft add --help`).
+  if (helper.visibleCommands(cmd).length) {
+    out.push(
+      `  ${t.arrow()} ${t.dim("Options d'une sous-commande :")} ${t.command(`${fullName(cmd)} <sous-commande> --help`)}`
+    );
   }
 
   out.push(`  ${t.arrow()} ${t.dim('Docs :')} ${t.value(DOC_URL)}`, '');
@@ -512,9 +535,9 @@ draft
   });
 
 draft
-  .command('add <jar>')
-  .description('Ajouter/remplacer un fichier dans un draft (hash + upload R2 + commit). Seule commande utilisable avec un token de service RECUBE_TOKEN (CI).')
-  .option('--path <virtualPath>', 'chemin cible dans le build (défaut: mods/<basename>)')
+  .command('add <file>')
+  .description("Ajouter/remplacer un fichier (jar, cfg, zip, n'importe quel type) dans un draft : va dans mods/<nom> par défaut, ou au chemin --path pour un sous-dossier (hash + upload R2 + commit). Seule commande utilisable avec un token de service RECUBE_TOKEN (CI).")
+  .option('--path <virtualPath>', "chemin cible dans le build, sous-dossiers OK (ex : config/mon-mod.cfg ; défaut : mods/<nom-du-fichier>)")
   // Ciblage CI : si pas de .recube/draft.json (ex GitHub Actions), pointer le
   // draft explicitement (ou via env RECUBE_DRAFT_ID/RECUBE_TENANT/RECUBE_CHANNEL).
   .option('--draft <id>', 'id du draft cible (CI ; défaut: .recube/draft.json ou env RECUBE_DRAFT_ID)')
@@ -635,7 +658,7 @@ branchOverlay
   .command('add <file>')
   .description('Ajouter/remplacer un fichier dans ta branche perso (hash + upload R2 + commit + recompose)')
   .requiredOption('-t, --tenant <slug>', 'slug du tenant (ex : nationsglory)')
-  .option('--path <virtualPath>', 'chemin cible dans le build (défaut : basename du fichier)')
+  .option('--path <virtualPath>', "chemin cible dans le build, sous-dossiers OK (ex : config/mon-mod.cfg ; défaut : basename du fichier, à la racine du build)")
   .option('--exec', 'marquer le fichier exécutable')
   .option('--encrypt', 'chiffrer le contenu (nécessite RecubeCore actif sur le channel cible)')
   .action(async (file: string, opts: { tenant?: string; path?: string; exec?: boolean; encrypt?: boolean }) => {
